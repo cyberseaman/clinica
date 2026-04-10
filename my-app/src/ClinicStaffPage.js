@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from 'react';
 
 import { apiBaseUrl } from './authConfig';
+import { formatRoleLabel, getAssignableRoles, hasPermission, permissions, roleLabels } from './rbac';
 
 function ClinicStaffPage({ token, staffUser, clinic }) {
   const [staffMembers, setStaffMembers] = useState([]);
+  const [availableRoles, setAvailableRoles] = useState([]);
   const [status, setStatus] = useState('loading');
   const [formStatus, setFormStatus] = useState('idle');
   const [error, setError] = useState('');
@@ -15,28 +17,67 @@ function ClinicStaffPage({ token, staffUser, clinic }) {
     password: '',
     role: 'clinic_staff',
   });
+  const canReadUsers = hasPermission(staffUser, permissions.USERS_READ);
+  const canCreateUsers = hasPermission(staffUser, permissions.USERS_CREATE);
 
   useEffect(() => {
     let ignore = false;
 
-    async function loadUsers() {
+    async function loadUsersAndRoles() {
       setStatus('loading');
       setError('');
 
       try {
-        const response = await fetch(`${apiBaseUrl}/users`, {
+        const requests = [];
+
+        if (canReadUsers) {
+          requests.push(
+            fetch(`${apiBaseUrl}/users`, {
+              headers: {
+                Authorization: `Bearer ${token}`,
+              },
+            }).then(async (response) => {
+              const data = await response.json();
+
+              if (!response.ok) {
+                throw new Error(data.error || 'Unable to load clinic users.');
+              }
+
+              return data.users || [];
+            })
+          );
+        } else {
+          requests.push(Promise.resolve([]));
+        }
+
+        requests.push(
+          fetch(`${apiBaseUrl}/auth/roles`, {
           headers: {
             Authorization: `Bearer ${token}`,
           },
-        });
-        const data = await response.json();
+          }).then(async (response) => {
+            const data = await response.json();
 
-        if (!response.ok) {
-          throw new Error(data.error || 'Unable to load clinic users.');
-        }
+            if (!response.ok) {
+              throw new Error(data.error || 'Unable to load available roles.');
+            }
+
+            return data.roles || [];
+          })
+        );
+
+        const [users, roles] = await Promise.all(requests);
 
         if (!ignore) {
-          setStaffMembers(data.users || []);
+          const assignableRoles = getAssignableRoles(staffUser);
+          const filteredRoles = roles.filter((role) => assignableRoles.includes(role.name));
+
+          setStaffMembers(users);
+          setAvailableRoles(filteredRoles);
+          setFormValues((current) => ({
+            ...current,
+            role: filteredRoles[0]?.name || current.role,
+          }));
           setStatus('ready');
         }
       } catch (loadError) {
@@ -47,12 +88,12 @@ function ClinicStaffPage({ token, staffUser, clinic }) {
       }
     }
 
-    loadUsers();
+    loadUsersAndRoles();
 
     return () => {
       ignore = true;
     };
-  }, [token]);
+  }, [canReadUsers, staffUser, token]);
 
   function updateField(field) {
     return (event) => {
@@ -90,7 +131,7 @@ function ClinicStaffPage({ token, staffUser, clinic }) {
         lastName: '',
         email: '',
         password: '',
-        role: 'clinic_staff',
+        role: availableRoles[0]?.name || 'clinic_staff',
       });
       setSuccess('Clinic user account created successfully.');
       setFormStatus('idle');
@@ -100,16 +141,14 @@ function ClinicStaffPage({ token, staffUser, clinic }) {
     }
   }
 
-  const canCreateAdmins = staffUser.role === 'clinic_admin';
-
   return (
     <section className="dashboard-content">
       <div className="dashboard-section-header">
-        <span className="dashboard-section-eyebrow">Clinic Admin</span>
-        <h2>Create clinic staff</h2>
+        <span className="dashboard-section-eyebrow">Role-Based Access</span>
+        <h2>Manage clinic users</h2>
         <p>
-          Create staff and admin accounts directly inside {clinic?.name || 'your clinic'}.
-          New users can sign in immediately after their account is created.
+          Create role-based accounts inside {clinic?.name || 'your clinic'} and review which
+          users currently have access to your clinic workspace.
         </p>
       </div>
 
@@ -120,6 +159,11 @@ function ClinicStaffPage({ token, staffUser, clinic }) {
             This creates an active account immediately without any invitation email flow.
           </p>
 
+          {!canCreateUsers ? (
+            <p className="dashboard-copy">
+              Your account can view clinic users but cannot create or assign new ones.
+            </p>
+          ) : (
           <form className="login-form" onSubmit={handleSubmit}>
             <div className="staff-form-grid">
               <label className="login-field">
@@ -172,12 +216,22 @@ function ClinicStaffPage({ token, staffUser, clinic }) {
                 value={formValues.role}
                 onChange={updateField('role')}
               >
-                <option value="clinic_staff">Clinic staff</option>
-                {canCreateAdmins ? (
-                  <option value="clinic_admin">Clinic admin</option>
-                ) : null}
+                {availableRoles.map((role) => (
+                  <option key={role.name} value={role.name}>
+                    {roleLabels[role.name] || formatRoleLabel(role.name)}
+                  </option>
+                ))}
               </select>
             </label>
+
+            {formValues.role ? (
+              <p className="dashboard-copy">
+                {
+                  availableRoles.find((role) => role.name === formValues.role)?.description
+                  || 'This role inherits a predefined set of clinic permissions.'
+                }
+              </p>
+            ) : null}
 
             {success ? <p className="login-success">{success}</p> : null}
             {error ? <p className="login-error">{error}</p> : null}
@@ -190,6 +244,7 @@ function ClinicStaffPage({ token, staffUser, clinic }) {
               {formStatus === 'submitting' ? 'Creating User...' : 'Create User Account'}
             </button>
           </form>
+          )}
         </section>
 
         <section className="dashboard-card staff-list-card">
@@ -205,7 +260,7 @@ function ClinicStaffPage({ token, staffUser, clinic }) {
 
           {status === 'loading' ? <p className="dashboard-copy">Loading clinic users...</p> : null}
 
-          {status === 'ready' ? (
+          {status === 'ready' && canReadUsers ? (
             <div className="staff-list">
               {staffMembers.map((member) => (
                 <article key={member.id} className="staff-list-item">
@@ -216,7 +271,7 @@ function ClinicStaffPage({ token, staffUser, clinic }) {
                     <span>{member.email}</span>
                   </div>
                   <div className="staff-list-meta">
-                    <span className="staff-role-pill">{member.role.replace('_', ' ')}</span>
+                    <span className="staff-role-pill">{formatRoleLabel(member.role)}</span>
                     <span className={`staff-status-pill ${member.isActive ? 'is-active' : 'is-inactive'}`}>
                       {member.isActive ? 'Active' : 'Inactive'}
                     </span>
@@ -224,6 +279,12 @@ function ClinicStaffPage({ token, staffUser, clinic }) {
                 </article>
               ))}
             </div>
+          ) : null}
+
+          {status === 'ready' && !canReadUsers ? (
+            <p className="dashboard-copy">
+              Your account cannot view the full clinic user roster.
+            </p>
           ) : null}
         </section>
       </div>

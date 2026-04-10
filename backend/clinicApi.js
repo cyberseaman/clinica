@@ -1,7 +1,11 @@
 const bcrypt = require('bcryptjs');
 const express = require('express');
 
-const ALLOWED_USER_ROLES = ['clinic_staff', 'clinic_admin'];
+const {
+  ASSIGN_PERMISSION_BY_ROLE,
+  PERMISSIONS,
+  ROLE_NAMES,
+} = require('./rbac');
 
 function normalizeEmail(email) {
   return String(email || '').trim().toLowerCase();
@@ -17,6 +21,7 @@ function sanitizeUser(row) {
     role: row.role,
     isActive: row.is_active,
     createdAt: row.created_at,
+    permissions: Array.isArray(row.permissions) ? row.permissions.filter(Boolean) : [],
   };
 }
 
@@ -58,13 +63,40 @@ function parseId(value) {
   return parsedValue;
 }
 
-function createClinicApi({ db, authenticateToken, authorizeRoles, staffRoles }) {
+function createClinicApi({ db, authenticateToken, authorizePermissions }) {
   const router = express.Router();
 
   router.use(authenticateToken);
-  router.use(authorizeRoles(...staffRoles));
 
-  router.post('/users', async (req, res, next) => {
+  async function findUserById(userId) {
+    const result = await db.query(
+      `SELECT
+         u.id,
+         u.clinic_id,
+         u.email,
+         u.first_name,
+         u.last_name,
+         u.role,
+         u.is_active,
+         u.created_at,
+         COALESCE(
+           ARRAY_AGG(DISTINCT p.key ORDER BY p.key)
+             FILTER (WHERE p.key IS NOT NULL),
+           ARRAY[]::TEXT[]
+         ) AS permissions
+       FROM users u
+       LEFT JOIN roles r ON r.name = u.role
+       LEFT JOIN role_permissions rp ON rp.role_id = r.id
+       LEFT JOIN permissions p ON p.id = rp.permission_id
+       WHERE u.id = $1
+       GROUP BY u.id`,
+      [userId]
+    );
+
+    return result.rows[0] || null;
+  }
+
+  router.post('/users', authorizePermissions(PERMISSIONS.USERS_CREATE), async (req, res, next) => {
     const {
       email,
       password,
@@ -79,15 +111,17 @@ function createClinicApi({ db, authenticateToken, authorizeRoles, staffRoles }) 
       });
     }
 
-    if (!ALLOWED_USER_ROLES.includes(role)) {
+    if (!ROLE_NAMES.includes(role)) {
       return res.status(400).json({
-        error: `role must be one of: ${ALLOWED_USER_ROLES.join(', ')}.`,
+        error: `role must be one of: ${ROLE_NAMES.join(', ')}.`,
       });
     }
 
-    if (role === 'clinic_admin' && req.auth.role !== 'clinic_admin') {
+    const requiredAssignmentPermission = ASSIGN_PERMISSION_BY_ROLE[role];
+
+    if (!req.auth.permissions.includes(requiredAssignmentPermission)) {
       return res.status(403).json({
-        error: 'Only clinic admins can create additional clinic admins.',
+        error: `You do not have permission to assign the ${role} role.`,
       });
     }
 
@@ -118,7 +152,7 @@ function createClinicApi({ db, authenticateToken, authorizeRoles, staffRoles }) 
         ]
       );
 
-      const user = result.rows[0];
+      const user = await findUserById(result.rows[0].id);
 
       await db.query(
         `INSERT INTO audit_logs (clinic_id, actor_user_id, action, entity_type, entity_id, metadata)
@@ -145,13 +179,30 @@ function createClinicApi({ db, authenticateToken, authorizeRoles, staffRoles }) 
     }
   });
 
-  router.get('/users', async (req, res, next) => {
+  router.get('/users', authorizePermissions(PERMISSIONS.USERS_READ), async (req, res, next) => {
     try {
       const result = await db.query(
-        `SELECT id, clinic_id, email, first_name, last_name, role, is_active, created_at
-         FROM users
-         WHERE clinic_id = $1
-         ORDER BY created_at DESC`,
+        `SELECT
+           u.id,
+           u.clinic_id,
+           u.email,
+           u.first_name,
+           u.last_name,
+           u.role,
+           u.is_active,
+           u.created_at,
+           COALESCE(
+             ARRAY_AGG(DISTINCT p.key ORDER BY p.key)
+               FILTER (WHERE p.key IS NOT NULL),
+             ARRAY[]::TEXT[]
+           ) AS permissions
+         FROM users u
+         LEFT JOIN roles r ON r.name = u.role
+         LEFT JOIN role_permissions rp ON rp.role_id = r.id
+         LEFT JOIN permissions p ON p.id = rp.permission_id
+         WHERE u.clinic_id = $1
+         GROUP BY u.id
+         ORDER BY u.created_at DESC`,
         [req.auth.clinicId]
       );
 
@@ -163,7 +214,7 @@ function createClinicApi({ db, authenticateToken, authorizeRoles, staffRoles }) 
     }
   });
 
-  router.post('/patients', async (req, res, next) => {
+  router.post('/patients', authorizePermissions(PERMISSIONS.PATIENTS_CREATE), async (req, res, next) => {
     const {
       firstName,
       lastName,
@@ -230,7 +281,7 @@ function createClinicApi({ db, authenticateToken, authorizeRoles, staffRoles }) 
     }
   });
 
-  router.get('/patients', async (req, res, next) => {
+  router.get('/patients', authorizePermissions(PERMISSIONS.PATIENTS_READ), async (req, res, next) => {
     try {
       const result = await db.query(
         `SELECT id, clinic_id, first_name, last_name, date_of_birth, sex, email, phone, notes, created_at, updated_at
@@ -248,7 +299,7 @@ function createClinicApi({ db, authenticateToken, authorizeRoles, staffRoles }) 
     }
   });
 
-  router.get('/patients/:patientId', async (req, res, next) => {
+  router.get('/patients/:patientId', authorizePermissions(PERMISSIONS.PATIENTS_READ), async (req, res, next) => {
     const patientId = parseId(req.params.patientId);
 
     if (!patientId) {
@@ -282,7 +333,7 @@ function createClinicApi({ db, authenticateToken, authorizeRoles, staffRoles }) 
     }
   });
 
-  router.put('/patients/:patientId', async (req, res, next) => {
+  router.put('/patients/:patientId', authorizePermissions(PERMISSIONS.PATIENTS_UPDATE), async (req, res, next) => {
     const patientId = parseId(req.params.patientId);
     const {
       firstName,
@@ -362,7 +413,7 @@ function createClinicApi({ db, authenticateToken, authorizeRoles, staffRoles }) 
     }
   });
 
-  router.post('/patients/:patientId/records', async (req, res, next) => {
+  router.post('/patients/:patientId/records', authorizePermissions(PERMISSIONS.RECORDS_CREATE), async (req, res, next) => {
     const patientId = parseId(req.params.patientId);
     const {
       recordType,
@@ -440,7 +491,7 @@ function createClinicApi({ db, authenticateToken, authorizeRoles, staffRoles }) 
     }
   });
 
-  router.get('/patients/:patientId/records', async (req, res, next) => {
+  router.get('/patients/:patientId/records', authorizePermissions(PERMISSIONS.RECORDS_READ), async (req, res, next) => {
     const patientId = parseId(req.params.patientId);
 
     if (!patientId) {

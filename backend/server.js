@@ -18,8 +18,7 @@ const auth = createAuthApi({
 const clinic = createClinicApi({
   db,
   authenticateToken: auth.authenticateToken,
-  authorizeRoles: auth.authorizeRoles,
-  staffRoles: auth.STAFF_ROLES,
+  authorizePermissions: auth.authorizePermissions,
 });
 
 app.use((req, res, next) => {

@@ -2,9 +2,12 @@ import React, { useMemo, useState } from 'react';
 
 import { apiBaseUrl } from './authConfig';
 import ClinicStaffPage from './ClinicStaffPage';
+import { formatRoleLabel, hasPermission, permissions } from './rbac';
 
 function ClinicDashboard({ clinic, staffUser, token, onLogout }) {
-  const isClinicAdmin = staffUser.role === 'clinic_admin';
+  const canManageUsers =
+    hasPermission(staffUser, permissions.USERS_READ) ||
+    hasPermission(staffUser, permissions.USERS_CREATE);
   const [activePage, setActivePage] = useState('overview');
 
   const navigationItems = useMemo(() => {
@@ -12,12 +15,12 @@ function ClinicDashboard({ clinic, staffUser, token, onLogout }) {
       { id: 'overview', label: 'Overview' },
     ];
 
-    if (isClinicAdmin) {
+    if (canManageUsers) {
       baseItems.push({ id: 'staff', label: 'Staff Management' });
     }
 
     return baseItems;
-  }, [isClinicAdmin]);
+  }, [canManageUsers]);
 
   function renderOverview() {
     return (
@@ -67,7 +70,7 @@ function ClinicDashboard({ clinic, staffUser, token, onLogout }) {
     <main className="dashboard-page">
       <section className="dashboard-hero">
         <span className="login-badge">{clinic?.name || 'Clinic Portal'}</span>
-        <h1>{isClinicAdmin ? 'Clinic admin dashboard' : 'Clinic staff dashboard'}</h1>
+        <h1>{formatRoleLabel(staffUser.role)} dashboard</h1>
         <p>
           Signed in as <strong>{staffUser.firstName || staffUser.email}</strong>.
           Manage your clinic workspace, protect patient records, and move into
@@ -79,7 +82,7 @@ function ClinicDashboard({ clinic, staffUser, token, onLogout }) {
         <div className="dashboard-topbar">
           <div className="dashboard-meta">
             <span className="login-endpoint-label">{clinic?.slug || 'clinic'}</span>
-            <span className="login-endpoint-label">{staffUser.role.replace('_', ' ')}</span>
+            <span className="login-endpoint-label">{formatRoleLabel(staffUser.role)}</span>
             <span className="login-endpoint-label">Connected to {apiBaseUrl}</span>
           </div>
           <button
@@ -120,7 +123,7 @@ function ClinicDashboard({ clinic, staffUser, token, onLogout }) {
 
           <div className="dashboard-main">
             {activePage === 'overview' ? renderOverview() : null}
-            {activePage === 'staff' && isClinicAdmin ? (
+            {activePage === 'staff' && canManageUsers ? (
               <ClinicStaffPage token={token} staffUser={staffUser} clinic={clinic} />
             ) : null}
           </div>

@@ -1,30 +1,71 @@
 # Clinic Backend
 
-Express + PostgreSQL backend for clinic authentication, seeded admin bootstrap, clinic-scoped user management, patient profiles, and medical records.
+Express + PostgreSQL backend for clinic authentication, clinic-scoped data access, and explicit RBAC permissions.
 
-## Features
+## What This Backend Does
 
-- JWT-based authentication with expiration
-- Logout via server-side session revocation
-- Role-based access for `clinic_admin` and `clinic_staff`
-- Bootstrap script for the first clinic admin
-- Clinic-scoped patient access so staff only see patients in their own clinic
-- Audit log entries for key actions
+- Authenticates clinic users with JWTs and expiring server-backed sessions
+- Revokes tokens on logout through the `auth_sessions` table
+- Stores clinics, users, patients, and medical records in PostgreSQL
+- Restricts all patient and record access to the authenticated user’s clinic
+- Uses explicit permissions per action instead of relying only on broad role checks
+- Bootstraps the first clinic admin with a seed command instead of public registration
 
-## Project Files
+## Current Roles
 
-- [server.js](/Users/richelsantiago/Desktop/PROJECT/backend/server.js): app startup and route wiring
-- [authApi.js](/Users/richelsantiago/Desktop/PROJECT/backend/authApi.js): login, logout, token validation, current-user lookup
-- [clinicApi.js](/Users/richelsantiago/Desktop/PROJECT/backend/clinicApi.js): clinic users, patients, and records
-- [seedAdmin.js](/Users/richelsantiago/Desktop/PROJECT/backend/seedAdmin.js): bootstrap script for creating the first clinic admin
-- [.env.example](/Users/richelsantiago/Desktop/PROJECT/backend/.env.example): starter local environment template
+The backend ships with these default roles:
+
+- `clinic_admin`
+- `clinic_staff`
+- `front_desk`
+- `billing_staff`
+
+Each role is mapped to a collection of permissions in [migrations/003_rbac.sql](/Users/richelsantiago/Desktop/PROJECT/backend/migrations/003_rbac.sql).
+
+### Default Permission Model
+
+- `clinic_admin`
+  - `users.read`
+  - `users.create`
+  - `users.assign.clinic_admin`
+  - `users.assign.clinic_staff`
+  - `users.assign.front_desk`
+  - `users.assign.billing_staff`
+  - `patients.read`
+  - `patients.create`
+  - `patients.update`
+  - `records.read`
+  - `records.create`
+
+- `clinic_staff`
+  - `patients.read`
+  - `patients.create`
+  - `patients.update`
+  - `records.read`
+  - `records.create`
+
+- `front_desk`
+  - `patients.read`
+  - `patients.create`
+  - `patients.update`
+
+- `billing_staff`
+  - `patients.read`
+
+## Important Files
+
+- [server.js](/Users/richelsantiago/Desktop/PROJECT/backend/server.js): server startup and route mounting
+- [authApi.js](/Users/richelsantiago/Desktop/PROJECT/backend/authApi.js): login, logout, auth middleware, current-user lookup, role metadata
+- [clinicApi.js](/Users/richelsantiago/Desktop/PROJECT/backend/clinicApi.js): users, patients, and records endpoints
+- [rbac.js](/Users/richelsantiago/Desktop/PROJECT/backend/rbac.js): shared role and permission definitions
 - [db.js](/Users/richelsantiago/Desktop/PROJECT/backend/db.js): PostgreSQL connection and migration runner
+- [seedAdmin.js](/Users/richelsantiago/Desktop/PROJECT/backend/seedAdmin.js): first-admin bootstrap script
 - [migrations/001_init.sql](/Users/richelsantiago/Desktop/PROJECT/backend/migrations/001_init.sql): base schema
-- [migrations/002_user_invitations.sql](/Users/richelsantiago/Desktop/PROJECT/backend/migrations/002_user_invitations.sql): unused legacy invitation table from the previous iteration
+- [migrations/003_rbac.sql](/Users/richelsantiago/Desktop/PROJECT/backend/migrations/003_rbac.sql): RBAC schema and default mappings
 
-## Schema Overview
+## Database Schema Overview
 
-The schema includes these main tables:
+Primary tables:
 
 - `clinics`
 - `users`
@@ -32,38 +73,33 @@ The schema includes these main tables:
 - `medical_records`
 - `auth_sessions`
 - `audit_logs`
+- `roles`
+- `permissions`
+- `role_permissions`
 
-There is also a `user_invitations` table left over from an earlier iteration, but the current backend no longer uses invitation-based onboarding.
+Important relationships:
 
-Key relationships:
-
-- One `clinic` has many `patients`
-- Each `patient` belongs to exactly one `clinic`
-- Each `user` belongs to exactly one `clinic`
-- Each `medical_record` belongs to exactly one `patient`
-
-## Requirements
-
-- Node.js 18+ recommended
-- PostgreSQL 14+ recommended
+- One clinic has many users
+- One clinic has many patients
+- Each patient belongs to exactly one clinic
+- Each medical record belongs to exactly one patient
+- Each auth session belongs to exactly one user
+- Roles map to many permissions through `role_permissions`
 
 ## Environment Variables
 
-You can use either `DATABASE_URL` or the individual `PG*` variables.
+You can use `DATABASE_URL` or the individual `PG*` variables.
 
-### Required for real usage
+### Core app config
 
 ```bash
+PORT=3000
+CLIENT_ORIGIN=http://localhost:3001
 JWT_SECRET=replace-this-with-a-real-secret
+JWT_EXPIRES_IN=1h
 ```
 
-### Database options
-
-```bash
-DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/clinic_backend
-```
-
-Or:
+### Database config
 
 ```bash
 PGHOST=127.0.0.1
@@ -73,26 +109,23 @@ PGPASSWORD=postgres
 PGDATABASE=clinic_backend
 ```
 
-### Application options
+Or:
 
 ```bash
-PORT=3000
-CLIENT_ORIGIN=http://localhost:3001
-JWT_EXPIRES_IN=1h
-PGSSLMODE=require
+DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/clinic_backend
 ```
 
-### First admin bootstrap options
+### Optional bootstrap values
 
-Use these with `npm run seed-admin`:
+Used by `npm run seed-admin`:
 
 ```bash
-SEED_CLINIC_NAME=Sunrise Family Clinic
-SEED_CLINIC_SLUG=sunrise-family-clinic
-SEED_ADMIN_EMAIL=admin@sunrise.test
-SEED_ADMIN_PASSWORD=Password123!
-SEED_ADMIN_FIRST_NAME=Alicia
-SEED_ADMIN_LAST_NAME=Admin
+SEED_CLINIC_NAME="Sunrise Family Clinic"
+SEED_CLINIC_SLUG="sunrise-family-clinic"
+SEED_ADMIN_EMAIL="admin@sunrise.test"
+SEED_ADMIN_PASSWORD="Password123!"
+SEED_ADMIN_FIRST_NAME="Alicia"
+SEED_ADMIN_LAST_NAME="Admin"
 ```
 
 ## Local Setup
@@ -103,21 +136,19 @@ SEED_ADMIN_LAST_NAME=Admin
 npm install
 ```
 
-2. Create the PostgreSQL database if it does not already exist:
+2. Create the PostgreSQL database:
 
 ```sql
 CREATE DATABASE clinic_backend;
 ```
 
-3. Copy the example environment file:
+3. Copy the env template:
 
 ```bash
 cp .env.example .env
 ```
 
-4. Export your environment variables or load them from your shell.
-
-One simple `zsh` option:
+4. Load the env values:
 
 ```bash
 set -a
@@ -131,105 +162,81 @@ set +a
 npm run seed-admin
 ```
 
-6. Start the server:
+6. Start the backend:
 
 ```bash
 npm start
 ```
 
-7. Expected startup output:
+Expected startup output:
 
-```bash
+```text
 Server listening on port 3000
 ```
 
-All SQL files in [migrations](/Users/richelsantiago/Desktop/PROJECT/backend/migrations) run automatically on startup in filename order.
+The backend runs on `http://localhost:3000` and is configured to accept the frontend origin `http://localhost:3001`.
 
-## Base URL
+## Bootstrap Flow
 
-```text
-http://localhost:3000
-```
+Public self-registration is intentionally removed.
 
-## Current User Creation Flow
+The current account flow is:
 
-Open self-registration is removed.
+1. Seed the first `clinic_admin` with `npm run seed-admin`
+2. Log in through `POST /auth/login`
+3. Use `POST /users` to create additional users in one of the supported roles
+4. New users can log in immediately with email and password
 
-That means:
+The seed script runs migrations first, then creates:
 
-- The first clinic admin is created with `npm run seed-admin`
-- After that, a signed-in `clinic_admin` can create additional staff or admin accounts directly with `POST /users`
-- New users can sign in immediately with their email and password
-
-## Bootstrapping the First Clinic Admin
-
-Because public self-registration is removed, you need to create the very first clinic admin yourself once per environment.
-
-The easiest way is the built-in bootstrap script:
-
-```bash
-npm run seed-admin
-```
-
-What the script does:
-
-- runs all migrations first
-- creates the clinic
-- creates the first user with role `clinic_admin`
-- writes an audit log entry
-
-What it prevents:
-
-- seeding a user if that email already exists
-- seeding a clinic if that slug already exists
-
-After the seed succeeds, you can log in through `POST /auth/login` and then create additional staff/admin accounts through the app or `POST /users`.
+- the clinic
+- the first admin user
+- an audit log entry
 
 ## Postman Setup
 
-Create a Postman collection named `Clinic Backend`.
+Create a collection named `Clinic Backend`.
 
-For authenticated requests, use either:
-
-- Authorization tab -> `Bearer Token`
-- Or a header: `Authorization: Bearer {{token}}`
-
-Helpful collection variables:
+Recommended collection variables:
 
 - `baseUrl` = `http://localhost:3000`
-- `token` = leave blank at first
-- `patientId` = leave blank at first
+- `token` = blank initially
+- `patientId` = blank initially
+
+For authenticated requests:
+
+- use Authorization type `Bearer Token`
+- or send `Authorization: Bearer {{token}}`
 
 ## Endpoint Summary
 
-### Public auth endpoints
+### Public endpoints
 
+- `GET /`
 - `POST /auth/login`
 
 ### Authenticated auth endpoints
 
 - `GET /auth/me`
+- `GET /auth/roles`
 - `POST /auth/logout`
 
-### Clinic admin endpoints
+### Permission-protected endpoints
 
-- `POST /users`
+- `GET /users` requires `users.read`
+- `POST /users` requires `users.create` plus a role-assignment permission for the requested role
+- `GET /patients` requires `patients.read`
+- `POST /patients` requires `patients.create`
+- `GET /patients/:patientId` requires `patients.read`
+- `PUT /patients/:patientId` requires `patients.update`
+- `GET /patients/:patientId/records` requires `records.read`
+- `POST /patients/:patientId/records` requires `records.create`
 
-### Authenticated clinic endpoints
+## Sample Postman Workflow
 
-- `GET /users`
-- `POST /patients`
-- `GET /patients`
-- `GET /patients/:patientId`
-- `PUT /patients/:patientId`
-- `POST /patients/:patientId/records`
-- `GET /patients/:patientId/records`
+### 1. Seed the first admin
 
-## Sample Workflow
-
-### 1. Seed the First Clinic Admin
-
-Before using the API, create the first clinic admin:
+Before testing the API:
 
 ```bash
 SEED_CLINIC_NAME="Sunrise Family Clinic" \
@@ -241,9 +248,7 @@ SEED_ADMIN_LAST_NAME="Admin" \
 npm run seed-admin
 ```
 
-### 2. Health Check
-
-Request:
+### 2. Health check
 
 - Method: `GET`
 - URL: `{{baseUrl}}/`
@@ -254,9 +259,7 @@ Expected response:
 Server is running!
 ```
 
-### 3. Login as the Seeded Admin
-
-Request:
+### 3. Log in as the seeded admin
 
 - Method: `POST`
 - URL: `{{baseUrl}}/auth/login`
@@ -282,7 +285,20 @@ Expected response shape:
     "firstName": "Alicia",
     "lastName": "Admin",
     "role": "clinic_admin",
-    "isActive": true
+    "isActive": true,
+    "permissions": [
+      "users.read",
+      "users.create",
+      "users.assign.clinic_admin",
+      "users.assign.clinic_staff",
+      "users.assign.front_desk",
+      "users.assign.billing_staff",
+      "patients.read",
+      "patients.create",
+      "patients.update",
+      "records.read",
+      "records.create"
+    ]
   },
   "clinic": {
     "id": 1,
@@ -292,21 +308,25 @@ Expected response shape:
 }
 ```
 
-Copy the `token` into your Postman `token` variable.
+Copy `token` into the Postman `token` variable.
 
-### 4. Check the Current Authenticated User
-
-Request:
+### 4. Confirm the current user
 
 - Method: `GET`
 - URL: `{{baseUrl}}/auth/me`
 - Authorization: `Bearer {{token}}`
 
-### 5. Create Another Staff or Admin User
+This should return the signed-in user, clinic, and the live permission list resolved from the database.
 
-Only an authenticated clinic user can do this. Only a `clinic_admin` can create another admin.
+### 5. Inspect available roles
 
-Request:
+- Method: `GET`
+- URL: `{{baseUrl}}/auth/roles`
+- Authorization: `Bearer {{token}}`
+
+This returns the role catalog and permission mapping the frontend also uses.
+
+### 6. Create a `clinic_staff` user
 
 - Method: `POST`
 - URL: `{{baseUrl}}/users`
@@ -335,22 +355,61 @@ Expected result:
     "lastName": "Nurse",
     "role": "clinic_staff",
     "isActive": true,
-    "createdAt": "..."
+    "createdAt": "...",
+    "permissions": [
+      "patients.read",
+      "patients.create",
+      "patients.update",
+      "records.read",
+      "records.create"
+    ]
   }
 }
 ```
 
-### 6. List Clinic Users
+### 7. Create a `front_desk` user
 
-Request:
+- Method: `POST`
+- URL: `{{baseUrl}}/users`
+- Authorization: `Bearer {{token}}`
+- Body:
+
+```json
+{
+  "email": "desk@sunrise.test",
+  "password": "Password123!",
+  "firstName": "Frida",
+  "lastName": "Desk",
+  "role": "front_desk"
+}
+```
+
+### 8. Create a `billing_staff` user
+
+- Method: `POST`
+- URL: `{{baseUrl}}/users`
+- Authorization: `Bearer {{token}}`
+- Body:
+
+```json
+{
+  "email": "billing@sunrise.test",
+  "password": "Password123!",
+  "firstName": "Bianca",
+  "lastName": "Billing",
+  "role": "billing_staff"
+}
+```
+
+### 9. List clinic users
 
 - Method: `GET`
 - URL: `{{baseUrl}}/users`
 - Authorization: `Bearer {{token}}`
 
-### 7. Create a Patient
+This response includes each user’s role and resolved permissions.
 
-Request:
+### 10. Create a patient
 
 - Method: `POST`
 - URL: `{{baseUrl}}/patients`
@@ -369,70 +428,103 @@ Request:
 }
 ```
 
-Save the returned patient `id` into the Postman `patientId` variable.
+Save the returned patient `id` to `patientId`.
 
-### 8. List Patients
-
-Request:
+### 11. List patients
 
 - Method: `GET`
 - URL: `{{baseUrl}}/patients`
 - Authorization: `Bearer {{token}}`
 
-### 9. Get One Patient
-
-Request:
+### 12. Get one patient
 
 - Method: `GET`
 - URL: `{{baseUrl}}/patients/{{patientId}}`
 - Authorization: `Bearer {{token}}`
 
-### 10. Update a Patient
-
-Request:
+### 13. Update a patient
 
 - Method: `PUT`
 - URL: `{{baseUrl}}/patients/{{patientId}}`
 - Authorization: `Bearer {{token}}`
+- Body:
 
-### 11. Create a Medical Record
+```json
+{
+  "firstName": "John",
+  "lastName": "Doe",
+  "dateOfBirth": "1988-05-10",
+  "sex": "male",
+  "email": "john.doe@example.com",
+  "phone": "555-333-4444",
+  "notes": "Diabetic patient. Last visit showed improved blood sugar control."
+}
+```
 
-Request:
+### 14. Create a medical record
 
 - Method: `POST`
 - URL: `{{baseUrl}}/patients/{{patientId}}/records`
 - Authorization: `Bearer {{token}}`
+- Body:
 
 ```json
 {
   "recordType": "follow_up",
   "summary": "Quarterly diabetes follow-up",
   "details": "A1C improving. Continue current treatment plan.",
-  "visitDate": "2026-04-05"
+  "visitDate": "2026-04-09"
 }
 ```
 
-### 12. List a Patient’s Medical Records
-
-Request:
+### 15. List medical records
 
 - Method: `GET`
 - URL: `{{baseUrl}}/patients/{{patientId}}/records`
 - Authorization: `Bearer {{token}}`
 
-### 13. Logout
-
-Request:
+### 16. Log out
 
 - Method: `POST`
 - URL: `{{baseUrl}}/auth/logout`
 - Authorization: `Bearer {{token}}`
 
-## Common Error Cases to Test
+After logout, that same token should fail on `GET /auth/me`.
 
-### Missing token
+## Good Permission Tests To Run In Postman
 
-Try `GET {{baseUrl}}/patients` without Authorization.
+These are useful to confirm RBAC is actually working.
+
+### Front desk cannot read records
+
+1. Log in as a `front_desk` user
+2. Call `GET /patients/{{patientId}}/records`
+
+Expected:
+
+```json
+{
+  "error": "You do not have permission to perform this action."
+}
+```
+
+### Billing staff can read patients but cannot create records
+
+1. Log in as a `billing_staff` user
+2. Call `GET /patients`
+3. Then call `POST /patients/{{patientId}}/records`
+
+Expected on the record-creation call:
+
+```json
+{
+  "error": "You do not have permission to perform this action."
+}
+```
+
+### Token required
+
+Try `GET {{baseUrl}}/patients` without a bearer token.
 
 Expected:
 
@@ -454,25 +546,9 @@ Expected:
 }
 ```
 
-### Duplicate seeded admin email or clinic slug
+### Cross-clinic access stays hidden
 
-If you run `npm run seed-admin` again with the same values, the script will stop with an error instead of duplicating data.
-
-### Duplicate staff email
-
-Try creating the same user twice with `POST /users`.
-
-Expected:
-
-```json
-{
-  "error": "A user with that email already exists."
-}
-```
-
-### Patient outside clinic scope
-
-If a user from another clinic tries to fetch `/patients/{{patientId}}`, the API should respond as if the patient does not exist:
+If a user from another clinic requests a patient from a different clinic:
 
 ```json
 {
@@ -480,26 +556,27 @@ If a user from another clinic tries to fetch `/patients/{{patientId}}`, the API 
 }
 ```
 
-## Notes for the Next Developer
+## Notes For The Next Developer
 
-- Public self-registration is intentionally removed
-- The first clinic admin should be provisioned with `npm run seed-admin`
-- Additional users are created directly by a signed-in clinic admin through `POST /users`
-- Users are global by email, so the same email cannot be reused across clinics
-- Sessions are stored in `auth_sessions`, which is why logout invalidates a token server-side
-- Migrations run from every `.sql` file in the `migrations` directory in sorted order
-- The `user_invitations` table remains in the schema from a previous iteration, but the current app does not use it
+- The app no longer uses public registration
+- The first admin is created with `npm run seed-admin`
+- Permissions are resolved live from the database on login and `GET /auth/me`
+- Route protection now checks explicit permission keys instead of broad role tests
+- The frontend should treat `user.permissions` as the source of truth for feature visibility
+- Users are still scoped to one clinic, and patient/record access is always filtered by clinic
+- [migrations/002_user_invitations.sql](/Users/richelsantiago/Desktop/PROJECT/backend/migrations/002_user_invitations.sql) remains in the repo, but invitation onboarding is not currently wired into the app
 
 ## Quick Smoke Test Order
 
 1. `npm run seed-admin`
-2. `GET /`
+2. `npm start`
 3. `POST /auth/login`
 4. `GET /auth/me`
-5. `POST /users`
-6. `GET /users`
-7. `POST /patients`
-8. `GET /patients`
-9. `POST /patients/:patientId/records`
-10. `GET /patients/:patientId/records`
-11. `POST /auth/logout`
+5. `GET /auth/roles`
+6. `POST /users`
+7. `GET /users`
+8. `POST /patients`
+9. `GET /patients`
+10. `POST /patients/:patientId/records`
+11. `GET /patients/:patientId/records`
+12. `POST /auth/logout`

@@ -4,7 +4,7 @@ import { apiBaseUrl } from './authConfig';
 
 const workflowSteps = [
   'Seed the first clinic admin from the backend',
-  'Create additional staff and admin accounts from the dashboard',
+  'Create additional clinic roles from the dashboard',
   'Sign in securely with your email and password',
 ];
 
@@ -80,12 +80,12 @@ function Login({ onAuthenticated, isCheckingSession }) {
               <span>The first clinic admin is created with the backend seed command instead of public registration.</span>
             </div>
             <div>
-              <strong>Admin-created accounts</strong>
-              <span>Clinic admins can create additional staff and admin users directly from the dashboard.</span>
+              <strong>Managed clinic roles</strong>
+              <span>Clinic admins can provision clinic staff, front desk, billing, and additional admin accounts.</span>
             </div>
             <div>
-              <strong>Role-based access</strong>
-              <span>Clinic admins and clinic staff stay separated through the backend role model.</span>
+              <strong>Permission-based access</strong>
+              <span>Each role is now a collection of explicit permissions instead of a broad all-or-nothing check.</span>
             </div>
             <div>
               <strong>Protected sessions</strong>

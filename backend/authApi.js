@@ -3,7 +3,7 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
-const STAFF_ROLES = ['clinic_staff', 'clinic_admin'];
+const { ROLE_NAMES } = require('./rbac');
 
 function normalizeEmail(email) {
   return String(email || '').trim().toLowerCase();
@@ -26,6 +26,7 @@ function sanitizeUser(row) {
     lastName: row.last_name,
     role: row.role,
     isActive: row.is_active,
+    permissions: Array.isArray(row.permissions) ? row.permissions.filter(Boolean) : [],
   };
 }
 
@@ -66,9 +67,14 @@ function createAuthApi(options = {}) {
     throw new Error('createAuthApi requires a database instance.');
   }
 
-  function authorizeRoles(...allowedRoles) {
+  function authorizePermissions(...requiredPermissions) {
     return (req, res, next) => {
-      if (!req.auth || !allowedRoles.includes(req.auth.role)) {
+      const userPermissions = req.auth?.permissions || [];
+      const hasAllPermissions = requiredPermissions.every((permission) =>
+        userPermissions.includes(permission)
+      );
+
+      if (!req.auth || !hasAllPermissions) {
         return res.status(403).json({
           error: 'You do not have permission to perform this action.',
         });
@@ -76,6 +82,69 @@ function createAuthApi(options = {}) {
 
       return next();
     };
+  }
+
+  async function findUserByEmail(email) {
+    const result = await db.query(
+      `SELECT
+         u.id,
+         u.clinic_id,
+         u.email,
+         u.password_hash,
+         u.first_name,
+         u.last_name,
+         u.role,
+         u.is_active,
+         c.id AS clinic_id_value,
+         c.name AS clinic_name,
+         c.slug AS clinic_slug,
+         COALESCE(
+           ARRAY_AGG(DISTINCT p.key ORDER BY p.key)
+             FILTER (WHERE p.key IS NOT NULL),
+           ARRAY[]::TEXT[]
+         ) AS permissions
+       FROM users u
+       JOIN clinics c ON c.id = u.clinic_id
+       LEFT JOIN roles r ON r.name = u.role
+       LEFT JOIN role_permissions rp ON rp.role_id = r.id
+       LEFT JOIN permissions p ON p.id = rp.permission_id
+       WHERE u.email = $1
+       GROUP BY u.id, c.id`,
+      [email]
+    );
+
+    return result.rows[0] || null;
+  }
+
+  async function findUserById(userId) {
+    const result = await db.query(
+      `SELECT
+         u.id,
+         u.clinic_id,
+         u.email,
+         u.first_name,
+         u.last_name,
+         u.role,
+         u.is_active,
+         c.id AS clinic_id_value,
+         c.name AS clinic_name,
+         c.slug AS clinic_slug,
+         COALESCE(
+           ARRAY_AGG(DISTINCT p.key ORDER BY p.key)
+             FILTER (WHERE p.key IS NOT NULL),
+           ARRAY[]::TEXT[]
+         ) AS permissions
+       FROM users u
+       JOIN clinics c ON c.id = u.clinic_id
+       LEFT JOIN roles r ON r.name = u.role
+       LEFT JOIN role_permissions rp ON rp.role_id = r.id
+       LEFT JOIN permissions p ON p.id = rp.permission_id
+       WHERE u.id = $1
+       GROUP BY u.id, c.id`,
+      [userId]
+    );
+
+    return result.rows[0] || null;
   }
 
   async function createSessionToken(queryable, user) {
@@ -137,11 +206,20 @@ function createAuthApi(options = {}) {
          u.first_name,
          u.last_name,
          u.role,
-         u.is_active
+         u.is_active,
+         COALESCE(
+           ARRAY_AGG(DISTINCT p.key ORDER BY p.key)
+             FILTER (WHERE p.key IS NOT NULL),
+           ARRAY[]::TEXT[]
+         ) AS permissions
        FROM auth_sessions s
        JOIN users u ON u.id = s.user_id
+       LEFT JOIN roles r ON r.name = u.role
+       LEFT JOIN role_permissions rp ON rp.role_id = r.id
+       LEFT JOIN permissions p ON p.id = rp.permission_id
        WHERE s.id = $1
-         AND s.user_id = $2`,
+         AND s.user_id = $2
+       GROUP BY s.id, u.id`,
       [payload.sessionId, Number(payload.sub)]
     );
 
@@ -177,10 +255,43 @@ function createAuthApi(options = {}) {
       role: sessionUser.role,
       firstName: sessionUser.first_name,
       lastName: sessionUser.last_name,
+      permissions: Array.isArray(sessionUser.permissions)
+        ? sessionUser.permissions.filter(Boolean)
+        : [],
     };
 
     return next();
   }
+
+  router.get('/auth/roles', authenticateToken, async (req, res, next) => {
+    try {
+      const result = await db.query(
+        `SELECT
+           r.name,
+           r.description,
+           COALESCE(
+             ARRAY_AGG(DISTINCT p.key ORDER BY p.key)
+               FILTER (WHERE p.key IS NOT NULL),
+             ARRAY[]::TEXT[]
+           ) AS permissions
+         FROM roles r
+         LEFT JOIN role_permissions rp ON rp.role_id = r.id
+         LEFT JOIN permissions p ON p.id = rp.permission_id
+         GROUP BY r.id
+         ORDER BY r.name ASC`
+      );
+
+      return res.status(200).json({
+        roles: result.rows.map((row) => ({
+          name: row.name,
+          description: row.description,
+          permissions: row.permissions || [],
+        })),
+      });
+    } catch (error) {
+      return next(error);
+    }
+  });
 
   router.post('/auth/login', async (req, res, next) => {
     const { email, password } = req.body;
@@ -192,26 +303,7 @@ function createAuthApi(options = {}) {
     }
 
     const normalizedEmail = normalizeEmail(email);
-    const result = await db.query(
-      `SELECT
-         u.id,
-         u.clinic_id,
-         u.email,
-         u.password_hash,
-         u.first_name,
-         u.last_name,
-         u.role,
-         u.is_active,
-         c.id AS clinic_id_value,
-         c.name AS clinic_name,
-         c.slug AS clinic_slug
-       FROM users u
-       JOIN clinics c ON c.id = u.clinic_id
-       WHERE u.email = $1`,
-      [normalizedEmail]
-    );
-
-    const user = result.rows[0];
+    const user = await findUserByEmail(normalizedEmail);
 
     if (!user || !user.is_active) {
       return res.status(401).json({
@@ -244,11 +336,11 @@ function createAuthApi(options = {}) {
         buildAuthResponse({
           ...session,
           user,
-          clinic: {
+          clinic: sanitizeClinic({
             id: user.clinic_id_value,
             name: user.clinic_name,
             slug: user.clinic_slug,
-          },
+          }),
         })
       );
     } catch (error) {
@@ -287,33 +379,15 @@ function createAuthApi(options = {}) {
 
   router.get('/auth/me', authenticateToken, async (req, res, next) => {
     try {
-      const result = await db.query(
-        `SELECT
-           u.id,
-           u.clinic_id,
-           u.email,
-           u.first_name,
-           u.last_name,
-           u.role,
-           u.is_active,
-           c.id AS clinic_id_value,
-           c.name AS clinic_name,
-           c.slug AS clinic_slug
-         FROM users u
-         JOIN clinics c ON c.id = u.clinic_id
-         WHERE u.id = $1`,
-        [req.auth.userId]
-      );
-
-      const user = result.rows[0];
+      const user = await findUserById(req.auth.userId);
 
       return res.status(200).json({
         user: sanitizeUser(user),
-        clinic: {
-          id: Number(user.clinic_id_value),
+        clinic: sanitizeClinic({
+          id: user.clinic_id_value,
           name: user.clinic_name,
           slug: user.clinic_slug,
-        },
+        }),
       });
     } catch (error) {
       return next(error);
@@ -323,12 +397,11 @@ function createAuthApi(options = {}) {
   return {
     router,
     authenticateToken,
-    authorizeRoles,
-    STAFF_ROLES,
+    authorizePermissions,
+    ROLE_NAMES,
   };
 }
 
 module.exports = {
-  STAFF_ROLES,
   createAuthApi,
 };
