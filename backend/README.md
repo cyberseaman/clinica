@@ -176,6 +176,15 @@ Server listening on port 3000
 
 The backend runs on `http://localhost:3000` and is configured to accept the frontend origin `http://localhost:3001`.
 
+Patient profiles now include additional structured fields for:
+
+- address
+- emergency contact
+- insurance info
+- health alerts: allergies, current medications, chronic conditions
+
+These fields are added by [migrations/004_patient_profile_fields.sql](/Users/richelsantiago/Desktop/PROJECT/backend/migrations/004_patient_profile_fields.sql), so make sure the backend has started against your database after pulling the latest changes.
+
 ## Bootstrap Flow
 
 Public self-registration is intentionally removed.
@@ -229,6 +238,7 @@ For authenticated requests:
 - `POST /patients` requires `patients.create`
 - `GET /patients/:patientId` requires `patients.read`
 - `PUT /patients/:patientId` requires `patients.update`
+- `DELETE /patients/:patientId` requires `patients.delete`
 - `GET /patients/:patientId/records` requires `records.read`
 - `POST /patients/:patientId/records` requires `records.create`
 
@@ -424,6 +434,22 @@ This response includes each user’s role and resolved permissions.
   "sex": "male",
   "email": "john.doe@example.com",
   "phone": "555-111-2222",
+  "address": "123 Main St, Springfield, CA 90000",
+  "emergencyContact": {
+    "name": "Jane Doe",
+    "phone": "555-777-8888",
+    "relationship": "Spouse"
+  },
+  "insuranceInfo": {
+    "provider": "Blue Shield",
+    "memberId": "ABC1234567",
+    "groupNumber": "GRP-1001"
+  },
+  "healthAlerts": {
+    "allergies": "Penicillin, peanuts",
+    "currentMedications": "Metformin 500mg twice daily",
+    "chronicConditions": "Type 2 diabetes"
+  },
   "notes": "Diabetic patient. Schedule regular follow-up."
 }
 ```
@@ -457,6 +483,22 @@ Save the returned patient `id` to `patientId`.
   "sex": "male",
   "email": "john.doe@example.com",
   "phone": "555-333-4444",
+  "address": "500 Wellness Ave, Springfield, CA 90000",
+  "emergencyContact": {
+    "name": "Jane Doe",
+    "phone": "555-777-8888",
+    "relationship": "Spouse"
+  },
+  "insuranceInfo": {
+    "provider": "Blue Shield",
+    "memberId": "ABC1234567",
+    "groupNumber": "GRP-1002"
+  },
+  "healthAlerts": {
+    "allergies": "Penicillin, peanuts",
+    "currentMedications": "Metformin 500mg twice daily; Lisinopril 10mg daily",
+    "chronicConditions": "Type 2 diabetes, hypertension"
+  },
   "notes": "Diabetic patient. Last visit showed improved blood sugar control."
 }
 ```
@@ -577,6 +619,8 @@ If a user from another clinic requests a patient from a different clinic:
 7. `GET /users`
 8. `POST /patients`
 9. `GET /patients`
-10. `POST /patients/:patientId/records`
-11. `GET /patients/:patientId/records`
-12. `POST /auth/logout`
+10. `PUT /patients/:patientId`
+11. `DELETE /patients/:patientId` as an admin-only check
+12. `POST /patients/:patientId/records`
+13. `GET /patients/:patientId/records`
+14. `POST /auth/logout`

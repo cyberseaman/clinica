@@ -35,6 +35,22 @@ function sanitizePatient(row) {
     sex: row.sex,
     email: row.email,
     phone: row.phone,
+    address: row.address,
+    emergencyContact: {
+      name: row.emergency_contact_name,
+      phone: row.emergency_contact_phone,
+      relationship: row.emergency_contact_relationship,
+    },
+    insuranceInfo: {
+      provider: row.insurance_provider,
+      memberId: row.insurance_member_id,
+      groupNumber: row.insurance_group_number,
+    },
+    healthAlerts: {
+      allergies: row.allergies,
+      currentMedications: row.current_medications,
+      chronicConditions: row.chronic_conditions,
+    },
     notes: row.notes,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -222,6 +238,10 @@ function createClinicApi({ db, authenticateToken, authorizePermissions }) {
       sex,
       email,
       phone,
+      address,
+      emergencyContact,
+      insuranceInfo,
+      healthAlerts,
       notes,
     } = req.body;
 
@@ -241,12 +261,22 @@ function createClinicApi({ db, authenticateToken, authorizePermissions }) {
            sex,
            email,
            phone,
+           address,
+           emergency_contact_name,
+           emergency_contact_phone,
+           emergency_contact_relationship,
+           insurance_provider,
+           insurance_member_id,
+           insurance_group_number,
+           allergies,
+           current_medications,
+           chronic_conditions,
            notes,
            created_by,
            updated_by
          )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
-         RETURNING id, clinic_id, first_name, last_name, date_of_birth, sex, email, phone, notes, created_at, updated_at`,
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $19)
+         RETURNING id, clinic_id, first_name, last_name, date_of_birth, sex, email, phone, address, emergency_contact_name, emergency_contact_phone, emergency_contact_relationship, insurance_provider, insurance_member_id, insurance_group_number, allergies, current_medications, chronic_conditions, notes, created_at, updated_at`,
         [
           req.auth.clinicId,
           String(firstName).trim(),
@@ -255,6 +285,16 @@ function createClinicApi({ db, authenticateToken, authorizePermissions }) {
           sex || null,
           email ? normalizeEmail(email) : null,
           phone ? String(phone).trim() : null,
+          address ? String(address).trim() : null,
+          emergencyContact?.name ? String(emergencyContact.name).trim() : null,
+          emergencyContact?.phone ? String(emergencyContact.phone).trim() : null,
+          emergencyContact?.relationship ? String(emergencyContact.relationship).trim() : null,
+          insuranceInfo?.provider ? String(insuranceInfo.provider).trim() : null,
+          insuranceInfo?.memberId ? String(insuranceInfo.memberId).trim() : null,
+          insuranceInfo?.groupNumber ? String(insuranceInfo.groupNumber).trim() : null,
+          healthAlerts?.allergies ? String(healthAlerts.allergies).trim() : null,
+          healthAlerts?.currentMedications ? String(healthAlerts.currentMedications).trim() : null,
+          healthAlerts?.chronicConditions ? String(healthAlerts.chronicConditions).trim() : null,
           notes ? String(notes).trim() : null,
           req.auth.userId,
         ]
@@ -284,7 +324,7 @@ function createClinicApi({ db, authenticateToken, authorizePermissions }) {
   router.get('/patients', authorizePermissions(PERMISSIONS.PATIENTS_READ), async (req, res, next) => {
     try {
       const result = await db.query(
-        `SELECT id, clinic_id, first_name, last_name, date_of_birth, sex, email, phone, notes, created_at, updated_at
+        `SELECT id, clinic_id, first_name, last_name, date_of_birth, sex, email, phone, address, emergency_contact_name, emergency_contact_phone, emergency_contact_relationship, insurance_provider, insurance_member_id, insurance_group_number, allergies, current_medications, chronic_conditions, notes, created_at, updated_at
          FROM patients
          WHERE clinic_id = $1
          ORDER BY last_name ASC, first_name ASC`,
@@ -310,7 +350,7 @@ function createClinicApi({ db, authenticateToken, authorizePermissions }) {
 
     try {
       const result = await db.query(
-        `SELECT id, clinic_id, first_name, last_name, date_of_birth, sex, email, phone, notes, created_at, updated_at
+        `SELECT id, clinic_id, first_name, last_name, date_of_birth, sex, email, phone, address, emergency_contact_name, emergency_contact_phone, emergency_contact_relationship, insurance_provider, insurance_member_id, insurance_group_number, allergies, current_medications, chronic_conditions, notes, created_at, updated_at
          FROM patients
          WHERE id = $1
            AND clinic_id = $2`,
@@ -342,6 +382,10 @@ function createClinicApi({ db, authenticateToken, authorizePermissions }) {
       sex,
       email,
       phone,
+      address,
+      emergencyContact,
+      insuranceInfo,
+      healthAlerts,
       notes,
     } = req.body;
 
@@ -366,12 +410,22 @@ function createClinicApi({ db, authenticateToken, authorizePermissions }) {
              sex = $6,
              email = $7,
              phone = $8,
-             notes = $9,
-             updated_by = $10,
+             address = $9,
+             emergency_contact_name = $10,
+             emergency_contact_phone = $11,
+             emergency_contact_relationship = $12,
+             insurance_provider = $13,
+             insurance_member_id = $14,
+             insurance_group_number = $15,
+             allergies = $16,
+             current_medications = $17,
+             chronic_conditions = $18,
+             notes = $19,
+             updated_by = $20,
              updated_at = CURRENT_TIMESTAMP
          WHERE id = $1
            AND clinic_id = $2
-         RETURNING id, clinic_id, first_name, last_name, date_of_birth, sex, email, phone, notes, created_at, updated_at`,
+         RETURNING id, clinic_id, first_name, last_name, date_of_birth, sex, email, phone, address, emergency_contact_name, emergency_contact_phone, emergency_contact_relationship, insurance_provider, insurance_member_id, insurance_group_number, allergies, current_medications, chronic_conditions, notes, created_at, updated_at`,
         [
           patientId,
           req.auth.clinicId,
@@ -381,6 +435,16 @@ function createClinicApi({ db, authenticateToken, authorizePermissions }) {
           sex || null,
           email ? normalizeEmail(email) : null,
           phone ? String(phone).trim() : null,
+          address ? String(address).trim() : null,
+          emergencyContact?.name ? String(emergencyContact.name).trim() : null,
+          emergencyContact?.phone ? String(emergencyContact.phone).trim() : null,
+          emergencyContact?.relationship ? String(emergencyContact.relationship).trim() : null,
+          insuranceInfo?.provider ? String(insuranceInfo.provider).trim() : null,
+          insuranceInfo?.memberId ? String(insuranceInfo.memberId).trim() : null,
+          insuranceInfo?.groupNumber ? String(insuranceInfo.groupNumber).trim() : null,
+          healthAlerts?.allergies ? String(healthAlerts.allergies).trim() : null,
+          healthAlerts?.currentMedications ? String(healthAlerts.currentMedications).trim() : null,
+          healthAlerts?.chronicConditions ? String(healthAlerts.chronicConditions).trim() : null,
           notes ? String(notes).trim() : null,
           req.auth.userId,
         ]
@@ -408,6 +472,49 @@ function createClinicApi({ db, authenticateToken, authorizePermissions }) {
       return res.status(200).json({
         patient: sanitizePatient(patient),
       });
+    } catch (error) {
+      return next(error);
+    }
+  });
+
+  router.delete('/patients/:patientId', authorizePermissions(PERMISSIONS.PATIENTS_DELETE), async (req, res, next) => {
+    const patientId = parseId(req.params.patientId);
+
+    if (!patientId) {
+      return res.status(400).json({
+        error: 'patientId must be a positive integer.',
+      });
+    }
+
+    try {
+      const result = await db.query(
+        `DELETE FROM patients
+         WHERE id = $1
+           AND clinic_id = $2
+         RETURNING id, first_name, last_name`,
+        [patientId, req.auth.clinicId]
+      );
+
+      const patient = result.rows[0];
+
+      if (!patient) {
+        return res.status(404).json({
+          error: 'Patient not found.',
+        });
+      }
+
+      await db.query(
+        `INSERT INTO audit_logs (clinic_id, actor_user_id, action, entity_type, entity_id, metadata)
+         VALUES ($1, $2, 'delete_patient', 'patient', $3, $4::jsonb)`,
+        [
+          req.auth.clinicId,
+          req.auth.userId,
+          patient.id,
+          JSON.stringify({ firstName: patient.first_name, lastName: patient.last_name }),
+        ]
+      );
+
+      return res.sendStatus(204);
     } catch (error) {
       return next(error);
     }

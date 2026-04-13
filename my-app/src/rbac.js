@@ -8,6 +8,7 @@ export const permissions = {
   PATIENTS_READ: 'patients.read',
   PATIENTS_CREATE: 'patients.create',
   PATIENTS_UPDATE: 'patients.update',
+  PATIENTS_DELETE: 'patients.delete',
   RECORDS_READ: 'records.read',
   RECORDS_CREATE: 'records.create',
 };
