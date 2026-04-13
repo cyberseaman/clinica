@@ -78,6 +78,43 @@ function sortPatients(patients) {
   });
 }
 
+const patientStatusOptions = [
+  'checked_in',
+  'triaged',
+  'provider_in_progress',
+  'labs_ordered',
+  'pending_results',
+  'treatment_complete',
+  'discharged',
+];
+
+function formatPatientStatus(patientId) {
+  const status = patientStatusOptions[(Number(patientId) - 1 + patientStatusOptions.length) % patientStatusOptions.length];
+  return status.replaceAll('_', ' ');
+}
+
+function getPatientAge(dateOfBirth) {
+  if (!dateOfBirth) {
+    return '--';
+  }
+
+  const birthDate = new Date(dateOfBirth);
+
+  if (Number.isNaN(birthDate.getTime())) {
+    return '--';
+  }
+
+  const now = new Date();
+  let age = now.getFullYear() - birthDate.getFullYear();
+  const monthDiff = now.getMonth() - birthDate.getMonth();
+
+  if (monthDiff < 0 || (monthDiff === 0 && now.getDate() < birthDate.getDate())) {
+    age -= 1;
+  }
+
+  return age >= 0 ? age : '--';
+}
+
 function ModalShell({ title, children, onClose }) {
   return (
     <div className="modal-overlay" role="presentation" onClick={onClose}>
@@ -222,9 +259,13 @@ function PatientWorkspace({ token, staffUser, clinic }) {
 
           nextCases = (recordData.records || []).map((record) => ({
             id: record.id,
+            number: record.id,
             caseNumber: `CASE-${record.id}`,
+            status: record.recordType === 'closed' ? 'Closed' : 'Open',
+            queue: 'General Review',
             description: record.summary || 'Untitled visit',
-            closedStatus: record.recordType === 'closed' ? 'Yes' : 'No',
+            assignedDepartment: 'Unassigned',
+            assignedProvider: 'Unassigned',
           }));
         }
 
@@ -654,7 +695,7 @@ function PatientWorkspace({ token, staffUser, clinic }) {
               onClick={openCreatePatientModal}
               disabled={!canCreatePatients}
             >
-              New Patient
+              + Patient
             </button>
             <button
               type="button"
@@ -662,27 +703,8 @@ function PatientWorkspace({ token, staffUser, clinic }) {
               onClick={openEditPatientModal}
               disabled={!selectedPatient || !canUpdatePatients}
             >
-              Edit Patient
+              Edit
             </button>
-            {canDeletePatients ? (
-              <button
-                type="button"
-                className="login-button login-button--secondary"
-                onClick={() => setActiveModal('delete-patient')}
-                disabled={!selectedPatient}
-              >
-                Delete Patient
-              </button>
-            ) : (
-              <button
-                type="button"
-                className="login-button login-button--secondary"
-                disabled
-                title="Admin access required"
-              >
-                Delete Patient
-              </button>
-            )}
           </div>
 
           <label className="login-field">
@@ -718,8 +740,14 @@ function PatientWorkspace({ token, staffUser, clinic }) {
                       setSelectedCaseId(null);
                     }}
                   >
-                    <strong>{[patient.firstName, patient.lastName].filter(Boolean).join(' ')}</strong>
-                    <span>{patient.email || patient.phone || patient.address || 'No contact info yet'}</span>
+                    <div className="patient-roster-item__header">
+                      <strong>{[patient.firstName, patient.lastName].filter(Boolean).join(' ')}</strong>
+                      <span className="patient-roster-item__meta">AGE: {getPatientAge(patient.dateOfBirth)}</span>
+                    </div>
+                    <div className="patient-roster-item__footer">
+                      <span>STATUS: {formatPatientStatus(patient.id)}</span>
+                      <span className="patient-roster-item__meta">ID: {patient.id}</span>
+                    </div>
                   </button>
                 ))
               )}
@@ -745,34 +773,38 @@ function PatientWorkspace({ token, staffUser, clinic }) {
           </div>
 
           <div className="case-action-bar">
-            {canDeletePatients ? (
+            <div className="case-action-bar__group">
+              {(canCreateRecords || staffUser.role === 'clinic_admin' || staffUser.role === 'clinic_staff') ? (
+                <button
+                  type="button"
+                  className="login-button login-button--secondary"
+                  disabled={!selectedPatient}
+                  onClick={() => setActiveModal('create-case')}
+                >
+                  + Case
+                </button>
+              ) : null}
               <button
                 type="button"
                 className="login-button login-button--secondary"
                 disabled={!selectedCase}
-                onClick={() => setActiveModal('delete-case')}
+                onClick={() => setActiveModal('view-case')}
               >
-                Delete
+                View
               </button>
+            </div>
+            {canDeletePatients ? (
+              <div className="case-action-bar__group case-action-bar__group--danger">
+                <button
+                  type="button"
+                  className="login-button login-button--danger"
+                  disabled={!selectedCase}
+                  onClick={() => setActiveModal('delete-case')}
+                >
+                  Delete
+                </button>
+              </div>
             ) : null}
-            {(canCreateRecords || staffUser.role === 'clinic_admin' || staffUser.role === 'clinic_staff') ? (
-              <button
-                type="button"
-                className="login-button login-button--secondary"
-                disabled={!selectedPatient}
-                onClick={() => setActiveModal('create-case')}
-              >
-                Create Case
-              </button>
-            ) : null}
-            <button
-              type="button"
-              className="login-button login-button--secondary"
-              disabled={!selectedCase}
-              onClick={() => setActiveModal('view-case')}
-            >
-              View
-            </button>
           </div>
 
           {!selectedPatient ? (
@@ -791,15 +823,19 @@ function PatientWorkspace({ token, staffUser, clinic }) {
               <table className="case-table">
                 <thead>
                   <tr>
-                    <th>Case Number</th>
-                    <th>Case Description</th>
-                    <th>Closed Status</th>
+                    <th>Number</th>
+                    <th>Case ID</th>
+                    <th>Status</th>
+                    <th>Queue</th>
+                    <th>Description</th>
+                    <th>Assigned Department</th>
+                    <th>Assigned Provider</th>
                   </tr>
                 </thead>
                 <tbody>
                   {cases.length === 0 ? (
                     <tr>
-                      <td colSpan="3" className="case-table__empty">
+                      <td colSpan="7" className="case-table__empty">
                         No cases or visits yet for this patient.
                       </td>
                     </tr>
@@ -810,9 +846,13 @@ function PatientWorkspace({ token, staffUser, clinic }) {
                         className={selectedCaseId === caseItem.id ? 'is-selected' : ''}
                         onClick={() => setSelectedCaseId(caseItem.id)}
                       >
+                        <td>{caseItem.number}</td>
                         <td>{caseItem.caseNumber}</td>
+                        <td>{caseItem.status}</td>
+                        <td>{caseItem.queue}</td>
                         <td>{caseItem.description}</td>
-                        <td>{caseItem.closedStatus}</td>
+                        <td>{caseItem.assignedDepartment}</td>
+                        <td>{caseItem.assignedProvider}</td>
                       </tr>
                     ))
                   )}

@@ -5,8 +5,6 @@ import ClinicStaffPage from './ClinicStaffPage';
 import PatientWorkspace from './PatientWorkspace';
 import { formatRoleLabel, hasPermission, permissions } from './rbac';
 
-const sidebarPreferenceKey = 'clinicPortalSidebarOpen';
-
 function ClinicDashboard({ clinic, staffUser, token, onLogout }) {
   const canManageUsers =
     hasPermission(staffUser, permissions.USERS_READ) ||
@@ -17,19 +15,6 @@ function ClinicDashboard({ clinic, staffUser, token, onLogout }) {
     hasPermission(staffUser, permissions.PATIENTS_UPDATE) ||
     hasPermission(staffUser, permissions.RECORDS_READ) ||
     hasPermission(staffUser, permissions.RECORDS_CREATE);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
-    const storedValue = window.localStorage.getItem(sidebarPreferenceKey);
-
-    if (storedValue === 'true') {
-      return true;
-    }
-
-    if (storedValue === 'false') {
-      return false;
-    }
-
-    return window.innerWidth >= 961;
-  });
   const [activePage, setActivePage] = useState('overview');
 
   const navigationItems = useMemo(() => {
@@ -92,14 +77,6 @@ function ClinicDashboard({ clinic, staffUser, token, onLogout }) {
     );
   }
 
-  function toggleSidebar() {
-    setIsSidebarOpen((current) => {
-      const nextValue = !current;
-      window.localStorage.setItem(sidebarPreferenceKey, String(nextValue));
-      return nextValue;
-    });
-  }
-
   return (
     <main className="dashboard-page">
       <section className="dashboard-hero">
@@ -113,18 +90,26 @@ function ClinicDashboard({ clinic, staffUser, token, onLogout }) {
       </section>
 
       <section className="dashboard-shell">
+        <div className="dashboard-nav-bar">
+          <div className="dashboard-nav-bar__inner">
+            <span className="dashboard-section-eyebrow">Navigation</span>
+            <div className="dashboard-nav dashboard-nav--horizontal">
+              {navigationItems.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className={`dashboard-nav__item ${activePage === item.id ? 'is-active' : ''}`}
+                  onClick={() => setActivePage(item.id)}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
         <div className="dashboard-topbar">
           <div className="dashboard-meta">
-            <button
-              type="button"
-              className="dashboard-menu-button"
-              onClick={toggleSidebar}
-              aria-label={isSidebarOpen ? 'Hide navigation' : 'Show navigation'}
-            >
-              <span />
-              <span />
-              <span />
-            </button>
             <span className="login-endpoint-label">{clinic?.slug || 'clinic'}</span>
             <span className="login-endpoint-label">{formatRoleLabel(staffUser.role)}</span>
             <span className="login-endpoint-label">Connected to {apiBaseUrl}</span>
@@ -139,40 +124,7 @@ function ClinicDashboard({ clinic, staffUser, token, onLogout }) {
         </div>
 
         <div className="dashboard-layout">
-          <aside className={`dashboard-sidebar ${isSidebarOpen ? 'is-open' : 'is-collapsed'}`}>
-            <div className="dashboard-sidebar__section">
-              <span className="dashboard-section-eyebrow">Navigation</span>
-              <div className="dashboard-nav">
-                {navigationItems.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    className={`dashboard-nav__item ${activePage === item.id ? 'is-active' : ''}`}
-                    onClick={() => setActivePage(item.id)}
-                  >
-                    {item.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="dashboard-sidebar__section dashboard-sidebar__note">
-              <span className="dashboard-section-eyebrow">Current User</span>
-              <strong>
-                {[staffUser.firstName, staffUser.lastName].filter(Boolean).join(' ') || staffUser.email}
-              </strong>
-              <p>{staffUser.email}</p>
-              <div className="dashboard-sidebar__permission-list">
-                {(staffUser.permissions || []).slice(0, 6).map((permission) => (
-                  <span key={permission} className="staff-role-pill">
-                    {permission}
-                  </span>
-                ))}
-              </div>
-            </div>
-          </aside>
-
-          <div className="dashboard-main">
+          <div key={activePage} className="dashboard-main dashboard-main--animated">
             {activePage === 'overview' ? renderOverview() : null}
             {activePage === 'patients' && canAccessPatients ? (
               <PatientWorkspace token={token} staffUser={staffUser} clinic={clinic} />
