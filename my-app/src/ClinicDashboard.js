@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 
 import { apiBaseUrl } from './authConfig';
+import ClinicEmployeePage from './ClinicEmployeePage';
 import ClinicStaffPage from './ClinicStaffPage';
 import PatientWorkspace from './PatientWorkspace';
 import { formatRoleLabel, hasPermission, permissions } from './rbac';
@@ -15,6 +16,7 @@ function ClinicDashboard({ clinic, staffUser, token, onLogout }) {
     hasPermission(staffUser, permissions.PATIENTS_UPDATE) ||
     hasPermission(staffUser, permissions.RECORDS_READ) ||
     hasPermission(staffUser, permissions.RECORDS_CREATE);
+  const canManageEmployees = staffUser?.role === 'clinic_admin';
   const [activePage, setActivePage] = useState('overview');
 
   const navigationItems = useMemo(() => {
@@ -30,8 +32,12 @@ function ClinicDashboard({ clinic, staffUser, token, onLogout }) {
       baseItems.push({ id: 'staff', label: 'Staff Management' });
     }
 
+    if (canManageEmployees) {
+      baseItems.push({ id: 'employee', label: 'Employee' });
+    }
+
     return baseItems;
-  }, [canAccessPatients, canManageUsers]);
+  }, [canAccessPatients, canManageEmployees, canManageUsers]);
 
   function renderOverview() {
     return (
@@ -131,6 +137,9 @@ function ClinicDashboard({ clinic, staffUser, token, onLogout }) {
             ) : null}
             {activePage === 'staff' && canManageUsers ? (
               <ClinicStaffPage token={token} staffUser={staffUser} clinic={clinic} />
+            ) : null}
+            {activePage === 'employee' && canManageEmployees ? (
+              <ClinicEmployeePage staffUser={staffUser} clinic={clinic} />
             ) : null}
           </div>
         </div>
