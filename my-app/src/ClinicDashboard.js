@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 
-import { apiBaseUrl } from './authConfig';
+import { authApiBaseUrl, employeeApiBaseUrl, patientApiBaseUrl } from './authConfig';
 import ClinicEmployeePage from './ClinicEmployeePage';
 import ClinicStaffPage from './ClinicStaffPage';
 import PatientWorkspace from './PatientWorkspace';
@@ -118,7 +118,9 @@ function ClinicDashboard({ clinic, staffUser, token, onLogout }) {
           <div className="dashboard-meta">
             <span className="login-endpoint-label">{clinic?.slug || 'clinic'}</span>
             <span className="login-endpoint-label">{formatRoleLabel(staffUser.role)}</span>
-            <span className="login-endpoint-label">Connected to {apiBaseUrl}</span>
+            <span className="login-endpoint-label">Auth: {authApiBaseUrl}</span>
+            <span className="login-endpoint-label">Employee: {employeeApiBaseUrl}</span>
+            <span className="login-endpoint-label">Patient: {patientApiBaseUrl}</span>
           </div>
           <button
             type="button"

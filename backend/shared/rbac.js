@@ -1,0 +1,75 @@
+const ROLE_NAMES = [
+  'clinic_admin',
+  'clinic_staff',
+  'front_desk',
+  'billing_staff',
+];
+
+const PERMISSIONS = {
+  EMPLOYEES_READ: 'employees.read',
+  EMPLOYEES_WRITE: 'employees.write',
+  EMPLOYEES_ADMIN: 'employees.admin',
+  EMPLOYEES_ASSIGN_CLINIC_ADMIN: 'employees.assign.clinic_admin',
+  EMPLOYEES_ASSIGN_CLINIC_STAFF: 'employees.assign.clinic_staff',
+  EMPLOYEES_ASSIGN_FRONT_DESK: 'employees.assign.front_desk',
+  EMPLOYEES_ASSIGN_BILLING_STAFF: 'employees.assign.billing_staff',
+  PATIENTS_READ: 'patients.read',
+  PATIENTS_CREATE: 'patients.create',
+  PATIENTS_UPDATE: 'patients.update',
+  PATIENTS_DELETE: 'patients.delete',
+  RECORDS_READ: 'records.read',
+  RECORDS_CREATE: 'records.create',
+};
+
+const ROLE_SCOPES = {
+  clinic_admin: [
+    PERMISSIONS.EMPLOYEES_READ,
+    PERMISSIONS.EMPLOYEES_WRITE,
+    PERMISSIONS.EMPLOYEES_ADMIN,
+    PERMISSIONS.EMPLOYEES_ASSIGN_CLINIC_ADMIN,
+    PERMISSIONS.EMPLOYEES_ASSIGN_CLINIC_STAFF,
+    PERMISSIONS.EMPLOYEES_ASSIGN_FRONT_DESK,
+    PERMISSIONS.EMPLOYEES_ASSIGN_BILLING_STAFF,
+    PERMISSIONS.PATIENTS_READ,
+    PERMISSIONS.PATIENTS_CREATE,
+    PERMISSIONS.PATIENTS_UPDATE,
+    PERMISSIONS.PATIENTS_DELETE,
+    PERMISSIONS.RECORDS_READ,
+    PERMISSIONS.RECORDS_CREATE,
+  ],
+  clinic_staff: [
+    PERMISSIONS.PATIENTS_READ,
+    PERMISSIONS.PATIENTS_CREATE,
+    PERMISSIONS.PATIENTS_UPDATE,
+    PERMISSIONS.RECORDS_READ,
+    PERMISSIONS.RECORDS_CREATE,
+  ],
+  front_desk: [
+    PERMISSIONS.PATIENTS_READ,
+    PERMISSIONS.PATIENTS_CREATE,
+    PERMISSIONS.PATIENTS_UPDATE,
+  ],
+  billing_staff: [
+    PERMISSIONS.PATIENTS_READ,
+  ],
+};
+
+const ASSIGN_SCOPE_BY_ROLE = {
+  clinic_admin: PERMISSIONS.EMPLOYEES_ASSIGN_CLINIC_ADMIN,
+  clinic_staff: PERMISSIONS.EMPLOYEES_ASSIGN_CLINIC_STAFF,
+  front_desk: PERMISSIONS.EMPLOYEES_ASSIGN_FRONT_DESK,
+  billing_staff: PERMISSIONS.EMPLOYEES_ASSIGN_BILLING_STAFF,
+};
+
+function scopesForRole(role) {
+  const scopes = ROLE_SCOPES[role] || [];
+  return [...scopes];
+}
+
+module.exports = {
+  ASSIGN_SCOPE_BY_ROLE,
+  PERMISSIONS,
+  ROLE_NAMES,
+  ROLE_SCOPES,
+  scopesForRole,
+};

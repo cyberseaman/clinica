@@ -1,10 +1,10 @@
 export const permissions = {
-  USERS_READ: 'users.read',
-  USERS_CREATE: 'users.create',
-  USERS_ASSIGN_CLINIC_ADMIN: 'users.assign.clinic_admin',
-  USERS_ASSIGN_CLINIC_STAFF: 'users.assign.clinic_staff',
-  USERS_ASSIGN_FRONT_DESK: 'users.assign.front_desk',
-  USERS_ASSIGN_BILLING_STAFF: 'users.assign.billing_staff',
+  USERS_READ: 'employees.read',
+  USERS_CREATE: 'employees.write',
+  USERS_ASSIGN_CLINIC_ADMIN: 'employees.assign.clinic_admin',
+  USERS_ASSIGN_CLINIC_STAFF: 'employees.assign.clinic_staff',
+  USERS_ASSIGN_FRONT_DESK: 'employees.assign.front_desk',
+  USERS_ASSIGN_BILLING_STAFF: 'employees.assign.billing_staff',
   PATIENTS_READ: 'patients.read',
   PATIENTS_CREATE: 'patients.create',
   PATIENTS_UPDATE: 'patients.update',
@@ -25,7 +25,17 @@ export function formatRoleLabel(role) {
 }
 
 export function hasPermission(user, permission) {
-  return Boolean(user?.permissions?.includes(permission));
+  const grantedScopes = Array.isArray(user?.scopes) && user.scopes.length > 0
+    ? user.scopes
+    : Array.isArray(user?.permissions)
+      ? user.permissions
+      : [];
+  const legacyPermission = permission.replace(/^employees\./, 'users.');
+  const nextPermission = permission.replace(/^users\./, 'employees.');
+
+  return grantedScopes.includes(permission)
+    || grantedScopes.includes(legacyPermission)
+    || grantedScopes.includes(nextPermission);
 }
 
 export function getAssignableRoles(user) {

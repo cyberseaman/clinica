@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 
-import { apiBaseUrl } from './authConfig';
+import { patientApiBaseUrl } from './authConfig';
 import { hasPermission, permissions } from './rbac';
 
 const emptyPatientForm = {
@@ -179,7 +179,7 @@ function PatientWorkspace({ token, staffUser, clinic }) {
       setPatientError('');
 
       try {
-        const response = await fetch(`${apiBaseUrl}/patients`, {
+        const response = await fetch(`${patientApiBaseUrl}/patients`, {
           headers: {
             Authorization: `Bearer ${token}`,
           },
@@ -232,7 +232,7 @@ function PatientWorkspace({ token, staffUser, clinic }) {
       setCasesError('');
 
       try {
-        const patientResponse = await fetch(`${apiBaseUrl}/patients/${selectedPatientId}`, {
+        const patientResponse = await fetch(`${patientApiBaseUrl}/patients/${selectedPatientId}`, {
           headers: {
             Authorization: `Bearer ${token}`,
           },
@@ -246,7 +246,7 @@ function PatientWorkspace({ token, staffUser, clinic }) {
         let nextCases = [];
 
         if (canReadRecords) {
-          const recordsResponse = await fetch(`${apiBaseUrl}/patients/${selectedPatientId}/records`, {
+          const recordsResponse = await fetch(`${patientApiBaseUrl}/patients/${selectedPatientId}/records`, {
             headers: {
               Authorization: `Bearer ${token}`,
             },
@@ -361,7 +361,7 @@ function PatientWorkspace({ token, staffUser, clinic }) {
     setPatientError('');
 
     try {
-      const response = await fetch(`${apiBaseUrl}/patients`, {
+      const response = await fetch(`${patientApiBaseUrl}/patients`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -397,7 +397,7 @@ function PatientWorkspace({ token, staffUser, clinic }) {
     setPatientError('');
 
     try {
-      const response = await fetch(`${apiBaseUrl}/patients/${selectedPatientId}`, {
+      const response = await fetch(`${patientApiBaseUrl}/patients/${selectedPatientId}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -436,7 +436,7 @@ function PatientWorkspace({ token, staffUser, clinic }) {
     setPatientError('');
 
     try {
-      const response = await fetch(`${apiBaseUrl}/patients/${selectedPatientId}`, {
+      const response = await fetch(`${patientApiBaseUrl}/patients/${selectedPatientId}`, {
         method: 'DELETE',
         headers: {
           Authorization: `Bearer ${token}`,

@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import ClinicDashboard from './ClinicDashboard';
 import Login from './Login';
 import {
-  apiBaseUrl,
+  authApiBaseUrl,
   clinicStorageKey,
   tokenStorageKey,
   userStorageKey,
@@ -24,12 +24,40 @@ function parseStoredJson(key) {
   }
 }
 
+function normalizeUser(user) {
+  if (!user) {
+    return null;
+  }
+
+  const scopes = Array.isArray(user.scopes) && user.scopes.length > 0
+    ? user.scopes.filter(Boolean)
+    : Array.isArray(user.permissions)
+      ? user.permissions.filter(Boolean)
+      : [];
+
+  return {
+    ...user,
+    permissions: scopes,
+    scopes,
+  };
+}
+
+function normalizeAuthPayload(payload) {
+  const user = normalizeUser(payload?.user);
+
+  return {
+    clinic: payload?.clinic || null,
+    token: payload?.accessToken || payload?.token || '',
+    user,
+  };
+}
+
 function App() {
   const [page, setPage] = useState(() =>
     window.location.pathname === '/dashboard' ? 'dashboard' : 'login'
   );
   const [token, setToken] = useState(() => localStorage.getItem(tokenStorageKey) || '');
-  const [staffUser, setStaffUser] = useState(() => parseStoredJson(userStorageKey));
+  const [staffUser, setStaffUser] = useState(() => normalizeUser(parseStoredJson(userStorageKey)));
   const [clinic, setClinic] = useState(() => parseStoredJson(clinicStorageKey));
   const [authStatus, setAuthStatus] = useState(() => (token ? 'checking' : 'idle'));
 
@@ -65,7 +93,7 @@ function App() {
       setAuthStatus('checking');
 
       try {
-        const response = await fetch(`${apiBaseUrl}/auth/me`, {
+        const response = await fetch(`${authApiBaseUrl}/auth/me`, {
           headers: {
             Authorization: `Bearer ${token}`,
           },
@@ -77,10 +105,12 @@ function App() {
         }
 
         if (!ignore) {
-          setStaffUser(data.user || null);
-          setClinic(data.clinic || null);
-          localStorage.setItem(userStorageKey, JSON.stringify(data.user || null));
-          localStorage.setItem(clinicStorageKey, JSON.stringify(data.clinic || null));
+          const nextSession = normalizeAuthPayload(data);
+
+          setStaffUser(nextSession.user);
+          setClinic(nextSession.clinic);
+          localStorage.setItem(userStorageKey, JSON.stringify(nextSession.user));
+          localStorage.setItem(clinicStorageKey, JSON.stringify(nextSession.clinic));
           setAuthStatus('authenticated');
         }
       } catch (error) {
@@ -120,12 +150,14 @@ function App() {
   }
 
   function handleAuthenticated(data) {
-    localStorage.setItem(tokenStorageKey, data.token);
-    localStorage.setItem(userStorageKey, JSON.stringify(data.user));
-    localStorage.setItem(clinicStorageKey, JSON.stringify(data.clinic || null));
-    setToken(data.token);
-    setStaffUser(data.user);
-    setClinic(data.clinic || null);
+    const nextSession = normalizeAuthPayload(data);
+
+    localStorage.setItem(tokenStorageKey, nextSession.token);
+    localStorage.setItem(userStorageKey, JSON.stringify(nextSession.user));
+    localStorage.setItem(clinicStorageKey, JSON.stringify(nextSession.clinic));
+    setToken(nextSession.token);
+    setStaffUser(nextSession.user);
+    setClinic(nextSession.clinic);
     setAuthStatus('authenticated');
     navigateToDashboard();
   }
@@ -147,7 +179,7 @@ function App() {
     }
 
     try {
-      await fetch(`${apiBaseUrl}/auth/logout`, {
+      await fetch(`${authApiBaseUrl}/auth/logout`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${existingToken}`,

@@ -1,0 +1,126 @@
+services:
+  auth-db:
+    image: postgres:16-alpine
+    container_name: clinic-auth-db
+    environment:
+      POSTGRES_DB: ${AUTH_DB_NAME:-clinic_auth}
+      POSTGRES_PASSWORD: ${AUTH_DB_PASSWORD:-postgres}
+      POSTGRES_USER: ${AUTH_DB_USER:-postgres}
+    ports:
+      - "${AUTH_DB_PORT:-5433}:5432"
+    volumes:
+      - auth-db-data:/var/lib/postgresql/data
+
+  employee-db:
+    image: postgres:16-alpine
+    container_name: clinic-employee-db
+    environment:
+      POSTGRES_DB: ${EMPLOYEE_DB_NAME:-clinic_employee}
+      POSTGRES_PASSWORD: ${EMPLOYEE_DB_PASSWORD:-postgres}
+      POSTGRES_USER: ${EMPLOYEE_DB_USER:-postgres}
+    ports:
+      - "${EMPLOYEE_DB_PORT:-5434}:5432"
+    volumes:
+      - employee-db-data:/var/lib/postgresql/data
+
+  patient-db:
+    image: postgres:16-alpine
+    container_name: clinic-patient-db
+    environment:
+      POSTGRES_DB: ${PATIENT_DB_NAME:-clinic_patient}
+      POSTGRES_PASSWORD: ${PATIENT_DB_PASSWORD:-postgres}
+      POSTGRES_USER: ${PATIENT_DB_USER:-postgres}
+    ports:
+      - "${PATIENT_DB_PORT:-5435}:5432"
+    volumes:
+      - patient-db-data:/var/lib/postgresql/data
+
+  auth-service:
+    build:
+      context: .
+      dockerfile: docker/auth/Dockerfile
+    container_name: clinic-auth-service
+    depends_on:
+      - auth-db
+      - employee-db
+    environment:
+      AUTH_DATABASE_URL: postgres://${AUTH_DB_USER:-postgres}:${AUTH_DB_PASSWORD:-postgres}@auth-db:5432/${AUTH_DB_NAME:-clinic_auth}
+      AUTH_PGDATABASE: ${AUTH_DB_NAME:-clinic_auth}
+      AUTH_PGHOST: auth-db
+      AUTH_PGPASSWORD: ${AUTH_DB_PASSWORD:-postgres}
+      AUTH_PGPORT: 5432
+      AUTH_PGUSER: ${AUTH_DB_USER:-postgres}
+      CLIENT_ORIGIN: ${CLIENT_ORIGIN:-http://localhost:5173}
+      DATABASE_URL: postgres://${AUTH_DB_USER:-postgres}:${AUTH_DB_PASSWORD:-postgres}@auth-db:5432/${AUTH_DB_NAME:-clinic_auth}
+      EMPLOYEE_DATABASE_URL: postgres://${EMPLOYEE_DB_USER:-postgres}:${EMPLOYEE_DB_PASSWORD:-postgres}@employee-db:5432/${EMPLOYEE_DB_NAME:-clinic_employee}
+      EMPLOYEE_PGDATABASE: ${EMPLOYEE_DB_NAME:-clinic_employee}
+      EMPLOYEE_PGHOST: employee-db
+      EMPLOYEE_PGPASSWORD: ${EMPLOYEE_DB_PASSWORD:-postgres}
+      EMPLOYEE_PGPORT: 5432
+      EMPLOYEE_PGUSER: ${EMPLOYEE_DB_USER:-postgres}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-dev-internal-service-token}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-clinic-resource-services}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-15m}
+      JWT_ISSUER: ${JWT_ISSUER:-clinic-auth-service}
+      JWT_PRIVATE_KEY_PATH: /run/certs/dev-private.pem
+      JWT_PUBLIC_KEY_PATH: /run/certs/dev-public.pem
+      PORT: 3000
+      SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-admin@sunrise.test}
+      SEED_ADMIN_FIRST_NAME: ${SEED_ADMIN_FIRST_NAME:-Alicia}
+      SEED_ADMIN_LAST_NAME: ${SEED_ADMIN_LAST_NAME:-Admin}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-Password123!}
+      SEED_CLINIC_NAME: ${SEED_CLINIC_NAME:-Sunrise Family Clinic}
+      SEED_CLINIC_SLUG: ${SEED_CLINIC_SLUG:-sunrise-family-clinic}
+    ports:
+      - "${AUTH_SERVICE_PORT:-3000}:3000"
+    volumes:
+      - ./certs:/run/certs:ro
+
+  employee-service:
+    build:
+      context: .
+      dockerfile: docker/employee/Dockerfile
+    container_name: clinic-employee-service
+    depends_on:
+      - auth-service
+      - employee-db
+    environment:
+      AUTH_SERVICE_URL: http://auth-service:3000
+      CLIENT_ORIGIN: ${CLIENT_ORIGIN:-http://localhost:5173}
+      DATABASE_URL: postgres://${EMPLOYEE_DB_USER:-postgres}:${EMPLOYEE_DB_PASSWORD:-postgres}@employee-db:5432/${EMPLOYEE_DB_NAME:-clinic_employee}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-dev-internal-service-token}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-clinic-resource-services}
+      JWT_ISSUER: ${JWT_ISSUER:-clinic-auth-service}
+      JWT_PUBLIC_KEY_PATH: /run/certs/dev-public.pem
+      PORT: 3001
+    ports:
+      - "${EMPLOYEE_SERVICE_PORT:-3001}:3001"
+    volumes:
+      - ./certs:/run/certs:ro
+
+  patient-service:
+    build:
+      context: .
+      dockerfile: docker/patient/Dockerfile
+    container_name: clinic-patient-service
+    depends_on:
+      - auth-service
+      - patient-db
+    environment:
+      AUTH_SERVICE_URL: http://auth-service:3000
+      CLIENT_ORIGIN: ${CLIENT_ORIGIN:-http://localhost:5173}
+      DATABASE_URL: postgres://${PATIENT_DB_USER:-postgres}:${PATIENT_DB_PASSWORD:-postgres}@patient-db:5432/${PATIENT_DB_NAME:-clinic_patient}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-dev-internal-service-token}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-clinic-resource-services}
+      JWT_ISSUER: ${JWT_ISSUER:-clinic-auth-service}
+      JWT_PUBLIC_KEY_PATH: /run/certs/dev-public.pem
+      PORT: 3002
+    ports:
+      - "${PATIENT_SERVICE_PORT:-3002}:3002"
+    volumes:
+      - ./certs:/run/certs:ro
+
+volumes:
+  auth-db-data:
+  employee-db-data:
+  patient-db-data:

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 
-import { apiBaseUrl } from './authConfig';
+import { authApiBaseUrl, employeeApiBaseUrl, patientApiBaseUrl } from './authConfig';
 
 const workflowSteps = [
   'Seed the first clinic admin from the backend',
@@ -31,7 +31,7 @@ function Login({ onAuthenticated, isCheckingSession }) {
     setError('');
 
     try {
-      const response = await fetch(`${apiBaseUrl}/auth/login`, {
+      const response = await fetch(`${authApiBaseUrl}/auth/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -143,7 +143,7 @@ function Login({ onAuthenticated, isCheckingSession }) {
                 <input type="checkbox" defaultChecked />
                 <span>Keep this device signed in</span>
               </label>
-              <span className="login-endpoint-label">{apiBaseUrl}</span>
+              <span className="login-endpoint-label">Auth: {authApiBaseUrl}</span>
             </div>
 
             <div className="login-workflow-card">
@@ -167,9 +167,18 @@ function Login({ onAuthenticated, isCheckingSession }) {
 
             <p className="login-helper-text">
               Configure
+              <code> REACT_APP_AUTH_API_URL </code>
+              <code> REACT_APP_EMPLOYEE_API_URL </code>
+              and
+              <code> REACT_APP_PATIENT_API_URL </code>
+              for split services, or keep using
               <code> REACT_APP_API_BASE_URL </code>
-              if your API is not running at
-              <code> http://localhost:3000</code>.
+              when everything is served from one origin.
+            </p>
+
+            <p className="login-helper-text">
+              Auth: <code>{authApiBaseUrl}</code> Employee: <code>{employeeApiBaseUrl}</code> Patient:
+              <code> {patientApiBaseUrl}</code>
             </p>
           </form>
         </div>

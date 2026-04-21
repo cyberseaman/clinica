@@ -1,11 +1,16 @@
 {
   "name": "project",
   "version": "1.0.0",
-  "description": "",
+  "description": "Clinic backend microservices compose stack",
   "main": "server.js",
   "scripts": {
-    "seed-admin": "node seedAdmin.js",
-    "start": "node server.js",
+    "bootstrap-admin": "node scripts/bootstrapAdmin.js",
+    "compose:down": "docker compose down",
+    "compose:up": "docker compose up --build",
+    "seed-admin": "node scripts/bootstrapAdmin.js",
+    "start:auth": "node services/auth/src/index.js",
+    "start:employee": "node services/employee/src/index.js",
+    "start:patient": "node services/patient/src/index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],

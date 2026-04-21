@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 
-import { apiBaseUrl } from './authConfig';
+import { authApiBaseUrl, employeeApiBaseUrl } from './authConfig';
 import { formatRoleLabel, getAssignableRoles, hasPermission, permissions, roleLabels } from './rbac';
 
 function ClinicStaffPage({ token, staffUser, clinic }) {
@@ -32,7 +32,7 @@ function ClinicStaffPage({ token, staffUser, clinic }) {
 
         if (canReadUsers) {
           requests.push(
-            fetch(`${apiBaseUrl}/users`, {
+            fetch(`${employeeApiBaseUrl}/employees`, {
               headers: {
                 Authorization: `Bearer ${token}`,
               },
@@ -40,10 +40,10 @@ function ClinicStaffPage({ token, staffUser, clinic }) {
               const data = await response.json();
 
               if (!response.ok) {
-                throw new Error(data.error || 'Unable to load clinic users.');
+                throw new Error(data.error || 'Unable to load clinic employees.');
               }
 
-              return data.users || [];
+              return data.employees || [];
             })
           );
         } else {
@@ -51,10 +51,10 @@ function ClinicStaffPage({ token, staffUser, clinic }) {
         }
 
         requests.push(
-          fetch(`${apiBaseUrl}/auth/roles`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
+          fetch(`${authApiBaseUrl}/auth/roles`, {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
           }).then(async (response) => {
             const data = await response.json();
 
@@ -111,7 +111,7 @@ function ClinicStaffPage({ token, staffUser, clinic }) {
     setSuccess('');
 
     try {
-      const response = await fetch(`${apiBaseUrl}/users`, {
+      const response = await fetch(`${employeeApiBaseUrl}/employees`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -122,10 +122,10 @@ function ClinicStaffPage({ token, staffUser, clinic }) {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || 'Unable to create clinic user.');
+        throw new Error(data.error || 'Unable to create clinic employee.');
       }
 
-      setStaffMembers((current) => [data.user, ...current]);
+      setStaffMembers((current) => [data.employee, ...current]);
       setFormValues({
         firstName: '',
         lastName: '',
@@ -133,7 +133,7 @@ function ClinicStaffPage({ token, staffUser, clinic }) {
         password: '',
         role: availableRoles[0]?.name || 'clinic_staff',
       });
-      setSuccess('Clinic user account created successfully.');
+      setSuccess('Clinic employee account created successfully.');
       setFormStatus('idle');
     } catch (submitError) {
       setError(submitError.message);
@@ -145,23 +145,23 @@ function ClinicStaffPage({ token, staffUser, clinic }) {
     <section className="dashboard-content">
       <div className="dashboard-section-header">
         <span className="dashboard-section-eyebrow">Role-Based Access</span>
-        <h2>Manage clinic users</h2>
+        <h2>Manage clinic employees</h2>
         <p>
           Create role-based accounts inside {clinic?.name || 'your clinic'} and review which
-          users currently have access to your clinic workspace.
+          employees currently have access to your clinic workspace.
         </p>
       </div>
 
       <div className="staff-admin-layout">
         <section className="dashboard-card staff-form-card">
-          <h3>Create a new clinic user</h3>
+          <h3>Create a new clinic employee</h3>
           <p className="dashboard-copy">
             This creates an active account immediately without any invitation email flow.
           </p>
 
           {!canCreateUsers ? (
             <p className="dashboard-copy">
-              Your account can view clinic users but cannot create or assign new ones.
+              Your account can view clinic employees but cannot create or assign new ones.
             </p>
           ) : (
           <form className="login-form" onSubmit={handleSubmit}>
@@ -241,7 +241,7 @@ function ClinicStaffPage({ token, staffUser, clinic }) {
               className="login-button"
               disabled={formStatus === 'submitting'}
             >
-              {formStatus === 'submitting' ? 'Creating User...' : 'Create User Account'}
+              {formStatus === 'submitting' ? 'Creating Employee...' : 'Create Employee Account'}
             </button>
           </form>
           )}
@@ -250,15 +250,15 @@ function ClinicStaffPage({ token, staffUser, clinic }) {
         <section className="dashboard-card staff-list-card">
           <div className="staff-list-header">
             <div>
-              <h3>Active clinic users</h3>
+              <h3>Active clinic employees</h3>
               <p className="dashboard-copy">
-                Existing staff and admin accounts for this clinic.
+                Existing staff and admin employee accounts for this clinic.
               </p>
             </div>
-            <span className="login-endpoint-label">{staffMembers.length} users</span>
+            <span className="login-endpoint-label">{staffMembers.length} employees</span>
           </div>
 
-          {status === 'loading' ? <p className="dashboard-copy">Loading clinic users...</p> : null}
+          {status === 'loading' ? <p className="dashboard-copy">Loading clinic employees...</p> : null}
 
           {status === 'ready' && canReadUsers ? (
             <div className="staff-list">
@@ -272,8 +272,10 @@ function ClinicStaffPage({ token, staffUser, clinic }) {
                   </div>
                   <div className="staff-list-meta">
                     <span className="staff-role-pill">{formatRoleLabel(member.role)}</span>
-                    <span className={`staff-status-pill ${member.isActive ? 'is-active' : 'is-inactive'}`}>
-                      {member.isActive ? 'Active' : 'Inactive'}
+                    <span
+                      className={`staff-status-pill ${member.employmentStatus === 'active' ? 'is-active' : 'is-inactive'}`}
+                    >
+                      {member.employmentStatus === 'active' ? 'Active' : formatRoleLabel(member.employmentStatus)}
                     </span>
                   </div>
                 </article>
@@ -283,7 +285,7 @@ function ClinicStaffPage({ token, staffUser, clinic }) {
 
           {status === 'ready' && !canReadUsers ? (
             <p className="dashboard-copy">
-              Your account cannot view the full clinic user roster.
+              Your account cannot view the full clinic employee roster.
             </p>
           ) : null}
         </section>
