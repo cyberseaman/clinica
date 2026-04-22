@@ -6,6 +6,8 @@ Backend-only Docker Compose implementation with three application containers and
 - `employee-service`: employee resource server and final authority over employee data
 - `patient-service`: patient resource server and final authority over patient data
 
+The employee service now treats the frontend Employee Wizard as its primary data contract. Wizard domains are stored separately so employee identity, employment profile, role classification, permissions, credentials, and scheduling can evolve independently.
+
 ## Architecture
 
 ### Containers
@@ -43,6 +45,30 @@ That means the auth layer can reject obviously bad tokens early, but the resourc
 ### Employee Database
 
 - `employees`
+- `employee_access_profiles`
+- `employee_employment_profiles`
+- `employment_types`
+- `provider_types`
+- `departments`
+- `primary_roles`
+- `clinic_locations`
+- `clinical_categories`
+- `employee_clinical_categories`
+- `employee_clinical_category_details`
+- `permissions`
+- `employee_permissions`
+- `employee_category_permissions`
+- `employee_qualification_profiles`
+- `employee_licenses`
+- `employee_regulatory_identifiers`
+- `employee_supporting_documents`
+- `employee_experience_profiles`
+- `population_focuses`
+- `employee_population_focuses`
+- `employee_availability_profiles`
+- `employee_availability_days`
+- `visit_types`
+- `employee_visit_type_permissions`
 - `audit_logs`
 
 ### Patient Database
@@ -69,6 +95,8 @@ Important employee scopes:
 - `employees.assign.clinic_staff`
 - `employees.assign.front_desk`
 - `employees.assign.billing_staff`
+
+Employee onboarding also now stores fine-grained employee-system permissions separately from auth-token scopes. That allows future widgets and APIs to authorize against permission codes such as `patient.assign`, `chart.sign`, `labs.order.create`, or `schedule.manage` instead of hardcoding access from job title alone.
 
 Important patient scopes:
 
@@ -98,6 +126,8 @@ docker compose up --build
 ```bash
 docker compose exec auth-service npm run bootstrap-admin
 ```
+
+The employee service seeds its wizard reference data on startup, including provider types, departments, primary roles, clinical categories, permissions, visit types, and population-focus lookups.
 
 ## JWT Keys
 
@@ -129,9 +159,11 @@ For real environments, replace those files and rotate `INTERNAL_SERVICE_TOKEN`.
 
 ### Employee Service
 
+- `GET /employees/metadata`
 - `GET /employees`
 - `GET /employees/:employeeId`
 - `POST /employees`
+- `PATCH /employees/:employeeId`
 
 ### Patient Service
 
@@ -149,3 +181,76 @@ For real environments, replace those files and rotate `INTERNAL_SERVICE_TOKEN`.
 2. Receive a signed access token with clinic context and scopes.
 3. Call `employee-service` or `patient-service` with `Authorization: Bearer <token>`.
 4. The resource service validates the JWT locally, introspects it with `auth-service`, enforces its own rules, and only then touches its database.
+
+## Employee Wizard Payload
+
+The employee create and update routes accept a wizard-aligned structure:
+
+```json
+{
+  "basicInfo": {
+    "firstName": "Avery",
+    "lastName": "Morgan",
+    "email": "avery@clinic.org",
+    "phone": "(555) 555-0123",
+    "accountRole": "clinic_staff"
+  },
+  "employmentProfile": {
+    "startDate": "2026-04-21",
+    "status": "pending",
+    "providerType": "Physician",
+    "department": "General Medicine",
+    "primaryRole": "Treating provider",
+    "employmentType": "Full Time",
+    "roleTitle": "Lead Family Medicine Provider"
+  },
+  "clinicalCategories": {
+    "categories": ["Respiratory", "Infectious Diseases"],
+    "detailsByCategory": {
+      "Respiratory": ["Acute bronchitis"],
+      "Infectious Diseases": ["Influenza"]
+    }
+  },
+  "credentials": {
+    "licenseType": "MD",
+    "licenseNumber": "LIC-204859",
+    "issuingState": "California",
+    "expirationDate": "2027-10-01",
+    "licenseStatus": "active",
+    "degree": "MD",
+    "yearsOfExperience": "8",
+    "specialTraining": "Urgent care procedures",
+    "boardCertification": "Family Medicine",
+    "npiNumber": "1234567890",
+    "deaNumber": "AB1234567",
+    "supportingDocuments": ["board-cert.pdf"]
+  },
+  "experience": {
+    "yearsInPractice": "8",
+    "previousSpecialties": "Urgent care",
+    "languagesSpoken": "English, Spanish",
+    "populationFocus": ["adults"],
+    "notes": "Strong with same-day respiratory visits",
+    "internalNotes": "Prefers pediatric queue on weekdays"
+  },
+  "systemPermissions": [
+    { "code": "patient.view", "allowed": true },
+    { "code": "chart.sign", "allowed": true }
+  ],
+  "categoryPermissions": [
+    { "categoryName": "Infectious Diseases", "code": "labs.order.create", "allowed": true }
+  ],
+  "availability": {
+    "daysAvailable": ["Monday", "Tuesday"],
+    "startTime": "09:00",
+    "endTime": "17:00",
+    "maxPatientsPerDay": "20",
+    "visitTypesAllowed": ["New patient visit", "Follow-up visit"],
+    "notes": "Morning clinic only on Tuesdays"
+  }
+}
+```
+
+`PATCH /employees/:employeeId` can update one or more of those wizard sections at a time. The backend validates cross-domain constraints as well, for example requiring an active license before chart-signing or lab-order permissions are granted, and requiring a DEA number before prescription authority is granted.
+
+For backward compatibility, older payloads that still send `responsibilities` are translated into `systemPermissions` during request normalization.

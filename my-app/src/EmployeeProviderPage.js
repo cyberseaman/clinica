@@ -6,7 +6,7 @@ const wizardSteps = [
   { id: 'clinical_categories', label: 'Clinical Categories' },
   { id: 'credentials', label: 'Credentials' },
   { id: 'experience', label: 'Experience' },
-  { id: 'responsibilities', label: 'Responsibilities' },
+  { id: 'permissions', label: 'Permissions' },
   { id: 'availability', label: 'Availability' },
   { id: 'review', label: 'Review' },
 ];
@@ -62,7 +62,7 @@ const initialFormValues = {
     notes: '',
     internalNotes: '',
   },
-  responsibilities: ['Can receive patient assignments', 'Can sign charts'],
+  systemPermissions: ['patient.view', 'chart.note.create'],
   availability: {
     daysAvailable: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
     startTime: '09:00',
@@ -338,17 +338,108 @@ const clinicalCategoryDefinitions = [
     ],
   },
 ];
-const responsibilityOptions = [
-  'Can receive patient assignments',
-  'Can supervise other staff',
-  'Can sign charts',
-  'Can approve lab results',
-  'Can finalize diagnoses',
-  'Can discharge patients',
-  'Can administer vaccines',
-  'Can perform wound care',
-  'Can access billing codes',
-  'Can manage prescriptions',
+const patientCarePermissionGroups = [
+  {
+    id: 'patient_flow',
+    title: 'Patient Flow',
+    description: 'Permissions for intake, routing, and movement through patient-care workflows.',
+    permissions: [
+      {
+        code: 'patient.view',
+        name: 'View patient chart',
+        description: 'Open patient demographics, chart headers, and current care context.',
+      },
+      {
+        code: 'patient.assign',
+        name: 'Assign patient',
+        description: 'Accept and assign patient work to clinicians or patient-care queues.',
+      },
+      {
+        code: 'triage.update',
+        name: 'Update triage',
+        description: 'Document triage findings, acuity, and intake workflow changes.',
+      },
+      {
+        code: 'patient.discharge',
+        name: 'Discharge patient',
+        description: 'Complete discharge actions and move the patient out of active care flow.',
+      },
+      {
+        code: 'handoff.receive',
+        name: 'Receive clinical handoff',
+        description: 'Accept handoffs between intake, nursing, provider, and follow-up queues.',
+      },
+    ],
+  },
+  {
+    id: 'documentation',
+    title: 'Documentation',
+    description: 'Permissions for recording care, updating plans, and finalizing clinical documentation.',
+    permissions: [
+      {
+        code: 'chart.note.create',
+        name: 'Create chart note',
+        description: 'Create encounter notes, updates, and supporting clinical documentation.',
+      },
+      {
+        code: 'chart.sign',
+        name: 'Sign chart',
+        description: 'Finalize and sign chart documentation when licensure permits.',
+      },
+      {
+        code: 'vitals.record',
+        name: 'Record vitals',
+        description: 'Enter vital signs and bedside observation updates into the chart.',
+      },
+      {
+        code: 'careplan.update',
+        name: 'Update care plan',
+        description: 'Modify treatment plans, follow-up instructions, and care coordination tasks.',
+      },
+      {
+        code: 'diagnosis.finalize',
+        name: 'Finalize diagnosis',
+        description: 'Confirm and finalize diagnosis outcomes for the encounter.',
+      },
+    ],
+  },
+  {
+    id: 'orders_treatment',
+    title: 'Orders And Treatment',
+    description: 'Permissions for clinical orders, procedures, medication, and direct treatment actions.',
+    permissions: [
+      {
+        code: 'labs.order.create',
+        name: 'Create lab order',
+        description: 'Place lab orders connected to the visit and patient chart.',
+      },
+      {
+        code: 'labs.results.review',
+        name: 'Review lab results',
+        description: 'Open, review, and acknowledge returned laboratory findings.',
+      },
+      {
+        code: 'prescription.create',
+        name: 'Create prescription',
+        description: 'Generate prescription orders when licensure and DEA rules allow.',
+      },
+      {
+        code: 'vaccines.administer',
+        name: 'Administer vaccines',
+        description: 'Document vaccine preparation, administration, and completion status.',
+      },
+      {
+        code: 'woundcare.perform',
+        name: 'Perform wound care',
+        description: 'Carry out wound-care treatment workflows and related chart updates.',
+      },
+      {
+        code: 'orders.imaging.create',
+        name: 'Create imaging order',
+        description: 'Submit imaging or diagnostic-study orders during patient-care workflows.',
+      },
+    ],
+  },
 ];
 const populationFocusOptions = ['pediatrics', 'adults', 'geriatrics'];
 const dayOptions = [
@@ -372,6 +463,14 @@ const visitTypeOptions = [
   'Telehealth visit',
 ];
 
+const patientCarePermissionCatalog = patientCarePermissionGroups.flatMap((group) =>
+  group.permissions.map((permission) => ({
+    ...permission,
+    groupId: group.id,
+    groupTitle: group.title,
+  }))
+);
+
 function getCredentialAlerts(credentials) {
   const alerts = [];
   const today = new Date();
@@ -389,7 +488,7 @@ function getCredentialAlerts(credentials) {
     alerts.push({
       type: 'inactive',
       title: 'Inactive license',
-      message: 'This provider should not be assigned clinical responsibilities until the license is active.',
+      message: 'This provider should not be assigned patient-care permissions that require an active license.',
     });
   }
 
@@ -450,6 +549,17 @@ function formatDayRange(days) {
   return days.length > 1 ? `${days[0]}-${days[days.length - 1]}` : days[0];
 }
 
+function getPermissionDefinition(code) {
+  return (
+    patientCarePermissionCatalog.find((permission) => permission.code === code) || {
+      code,
+      name: code,
+      description: 'Custom permission code.',
+      groupTitle: 'Custom',
+    }
+  );
+}
+
 function EmployeeProviderPage({ clinic }) {
   const [activeStepIndex, setActiveStepIndex] = useState(0);
   const [formValues, setFormValues] = useState(initialFormValues);
@@ -475,6 +585,10 @@ function EmployeeProviderPage({ clinic }) {
   ]
     .filter(Boolean)
     .join(', ');
+  const selectedPermissionDetails = useMemo(
+    () => formValues.systemPermissions.map((code) => getPermissionDefinition(code)),
+    [formValues.systemPermissions]
+  );
 
   const reviewItems = useMemo(
     () => [
@@ -557,11 +671,14 @@ function EmployeeProviderPage({ clinic }) {
             .join(' • ') || 'Not provided yet',
       },
       {
-        label: 'Clinic Responsibilities',
-        value: formValues.responsibilities.join(', ') || 'None selected',
+        label: 'Operational Permissions',
+        value:
+          selectedPermissionDetails
+            .map((permission) => `${permission.name} (${permission.code})`)
+            .join(', ') || 'None selected',
       },
     ],
-    [formValues]
+    [formValues, selectedPermissionDetails]
   );
 
   function updateField(field) {
@@ -1172,51 +1289,74 @@ function EmployeeProviderPage({ clinic }) {
             </section>
           </div>
         );
-      case 'responsibilities':
+      case 'permissions':
         return (
           <div className="provider-credentials-layout">
             <section className="provider-group-card">
               <div className="provider-group-card__header">
                 <span className="dashboard-card__label">Operations Setup</span>
-                <h4>Translate this provider profile into platform behavior</h4>
+                <h4>Assign permission codes for patient-care access</h4>
               </div>
               <p className="dashboard-copy">
-                This page controls what the employee can actually do inside clinic workflows, not
-                just what appears in their HR profile. These selections will shape assignments,
-                chart handling, approvals, and downstream operational access.
+                These permissions will determine which commands, actions, and workflow transitions
+                this employee is authorized to perform inside the application. The list focuses on
+                patient-care personnel rather than billing, admin, or front-office access.
               </p>
 
-              <div className="provider-responsibility-grid">
-                {responsibilityOptions.map((responsibility) => (
-                  <label key={responsibility} className="provider-scope-checklist__item">
-                    <input
-                      type="checkbox"
-                      checked={formValues.responsibilities.includes(responsibility)}
-                      onChange={() => toggleListValue('responsibilities', responsibility)}
-                    />
-                    <span>{responsibility}</span>
-                  </label>
-                ))}
-              </div>
+              {patientCarePermissionGroups.map((group) => (
+                <section key={group.id} className="patient-form-section">
+                  <div>
+                    <span className="dashboard-card__label">{group.title}</span>
+                    <p className="dashboard-copy">{group.description}</p>
+                  </div>
+
+                  <div className="provider-responsibility-grid">
+                    {group.permissions.map((permission) => (
+                      <label key={permission.code} className="provider-scope-checklist__item">
+                        <input
+                          type="checkbox"
+                          checked={formValues.systemPermissions.includes(permission.code)}
+                          onChange={() => toggleListValue('systemPermissions', permission.code)}
+                        />
+                        <span>
+                          <strong>{permission.name}</strong>
+                          <code>{permission.code}</code>
+                          <small>{permission.description}</small>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </section>
+              ))}
             </section>
 
             <section className="provider-group-card">
               <div className="provider-group-card__header">
                 <span className="dashboard-card__label">Current Operational Access</span>
-                <h4>Selected responsibilities</h4>
+                <h4>Selected permissions</h4>
               </div>
-              {formValues.responsibilities.length > 0 ? (
+              <p className="dashboard-copy">
+                Click any assigned permission below to remove it from this employee&apos;s current
+                operational access.
+              </p>
+              {selectedPermissionDetails.length > 0 ? (
                 <div className="provider-chip-grid">
-                  {formValues.responsibilities.map((responsibility) => (
-                    <span key={responsibility} className="login-endpoint-label">
-                      {responsibility}
-                    </span>
+                  {selectedPermissionDetails.map((permission) => (
+                    <button
+                      key={permission.code}
+                      type="button"
+                      className="provider-chip provider-chip--stacked is-selected"
+                      onClick={() => toggleListValue('systemPermissions', permission.code)}
+                    >
+                      <span>{permission.name}</span>
+                      <code>{permission.code}</code>
+                    </button>
                   ))}
                 </div>
               ) : (
                 <p className="dashboard-copy">
-                  No operational permissions selected yet. This employee will not participate in
-                  clinic workflows until at least one responsibility is assigned.
+                  No operational permissions selected yet. This employee will not be authorized for
+                  patient-care commands until at least one permission is assigned.
                 </p>
               )}
             </section>
@@ -1344,10 +1484,12 @@ function EmployeeProviderPage({ clinic }) {
 
               <div className="provider-review-hero__section">
                 <strong>Permissions</strong>
-                {formValues.responsibilities.length > 0 ? (
+                {selectedPermissionDetails.length > 0 ? (
                   <ul className="provider-review-bullets">
-                    {formValues.responsibilities.map((responsibility) => (
-                      <li key={responsibility}>{responsibility}</li>
+                    {selectedPermissionDetails.map((permission) => (
+                      <li key={permission.code}>
+                        {permission.name} ({permission.code})
+                      </li>
                     ))}
                   </ul>
                 ) : (

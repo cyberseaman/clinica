@@ -47,6 +47,10 @@ function sortScopes(scopes) {
   return [...new Set((scopes || []).filter(Boolean))].sort();
 }
 
+function generateTemporaryPassword() {
+  return `Temp-${crypto.randomBytes(9).toString('base64url')}`;
+}
+
 function scopesMatch(left, right) {
   const leftScopes = sortScopes(left);
   const rightScopes = sortScopes(right);
@@ -435,12 +439,13 @@ function createAuthApi(options = {}) {
         role = 'clinic_staff',
       } = req.body;
 
-      if (!email || !password) {
-        return sendJsonError(res, 400, 'email and password are required.');
+      if (!email) {
+        return sendJsonError(res, 400, 'email is required.');
       }
 
       try {
-        const passwordHash = await bcrypt.hash(password, 10);
+        const temporaryPassword = password ? null : generateTemporaryPassword();
+        const passwordHash = await bcrypt.hash(password || temporaryPassword, 10);
         const normalizedEmail = normalizeEmail(email);
         const result = await db.query(
           `INSERT INTO users (
@@ -479,6 +484,91 @@ function createAuthApi(options = {}) {
         );
 
         return res.status(201).json({
+          temporaryPassword,
+          user: sanitizeUser(user),
+        });
+      } catch (error) {
+        if (error.code === '23505') {
+          return sendJsonError(res, 409, 'A user with that email already exists.');
+        }
+
+        return next(error);
+      }
+    }
+  );
+
+  router.patch(
+    '/internal/users/:userId',
+    authenticateServiceRequest,
+    authenticateToken,
+    async (req, res, next) => {
+      const userId = Number(req.params.userId);
+      const {
+        email,
+        firstName,
+        lastName,
+        role,
+      } = req.body;
+
+      if (!Number.isInteger(userId) || userId <= 0) {
+        return sendJsonError(res, 400, 'userId must be a positive integer.');
+      }
+
+      if (req.auth.role !== 'clinic_admin' || !req.auth.scopes.includes('employees.admin')) {
+        return sendJsonError(res, 403, 'Only clinic admins can update employee identities.');
+      }
+
+      const nextRole = role || 'clinic_staff';
+
+      if (!ROLE_NAMES.includes(nextRole)) {
+        return sendJsonError(res, 400, `role must be one of: ${ROLE_NAMES.join(', ')}.`);
+      }
+
+      const requiredAssignScope = ASSIGN_SCOPE_BY_ROLE[nextRole];
+
+      if (!req.auth.scopes.includes(requiredAssignScope)) {
+        return sendJsonError(res, 403, `You do not have permission to assign the ${nextRole} role.`);
+      }
+
+      try {
+        const result = await db.query(
+          `UPDATE users
+           SET email = COALESCE($3, email),
+               first_name = COALESCE($4, first_name),
+               last_name = COALESCE($5, last_name),
+               role = COALESCE($6, role),
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = $1
+             AND clinic_id = $2
+           RETURNING id`,
+          [
+            userId,
+            req.auth.clinicId,
+            email ? normalizeEmail(email) : null,
+            firstName !== undefined ? (firstName ? String(firstName).trim() : null) : null,
+            lastName !== undefined ? (lastName ? String(lastName).trim() : null) : null,
+            role || null,
+          ]
+        );
+
+        if (!result.rows[0]) {
+          return sendJsonError(res, 404, 'User not found.');
+        }
+
+        const user = await findUserById(result.rows[0].id);
+
+        await db.query(
+          `INSERT INTO audit_logs (clinic_id, actor_user_id, action, entity_type, entity_id, metadata)
+           VALUES ($1, $2, 'update_user_identity', 'user', $3, $4::jsonb)`,
+          [
+            req.auth.clinicId,
+            req.auth.userId,
+            user.id,
+            JSON.stringify({ email: user.email, role: user.role }),
+          ]
+        );
+
+        return res.status(200).json({
           user: sanitizeUser(user),
         });
       } catch (error) {

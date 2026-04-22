@@ -48,6 +48,20 @@ function createAuthClient(options = {}) {
     return parseServiceResponse(response);
   }
 
+  async function updateEmployeeIdentity(accessToken, userId, payload) {
+    const response = await fetch(`${authServiceUrl}/internal/users/${userId}`, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+        'X-Service-Token': internalServiceToken,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    return parseServiceResponse(response);
+  }
+
   async function rollbackEmployeeIdentity(accessToken, userId) {
     const response = await fetch(`${authServiceUrl}/internal/users/${userId}`, {
       method: 'DELETE',
@@ -68,6 +82,7 @@ function createAuthClient(options = {}) {
     introspectAccessToken,
     provisionEmployeeIdentity,
     rollbackEmployeeIdentity,
+    updateEmployeeIdentity,
   };
 }
 

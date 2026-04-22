@@ -128,10 +128,9 @@ async function bootstrapAdmin() {
          clinic_id,
          email,
          first_name,
-         last_name,
-         role
+         last_name
        )
-       VALUES ($1, $2, $3, $4, $5, 'clinic_admin')
+       VALUES ($1, $2, $3, $4, $5)
        RETURNING id`,
       [
         user.id,
@@ -142,13 +141,58 @@ async function bootstrapAdmin() {
       ]
     );
 
+    const employee = await employeePool.query(
+      `SELECT id
+       FROM employees
+       WHERE auth_user_id = $1`,
+      [user.id]
+    );
+    const employeeId = employee.rows[0].id;
+
+    await employeePool.query(
+      `INSERT INTO employee_access_profiles (employee_id, account_role)
+       VALUES ($1, 'clinic_admin')
+       ON CONFLICT (employee_id) DO UPDATE
+       SET account_role = EXCLUDED.account_role,
+           updated_at = CURRENT_TIMESTAMP`,
+      [employeeId]
+    );
+
+    await employeePool.query(
+      `INSERT INTO employee_employment_profiles (
+         employee_id,
+         start_date,
+         status,
+         employment_type_id,
+         provider_type_id,
+         department_id,
+         primary_role_id,
+         role_title
+       )
+       VALUES (
+         $1,
+         CURRENT_DATE,
+         'active',
+         (SELECT id FROM employment_types WHERE name = 'Full Time' LIMIT 1),
+         (SELECT id FROM provider_types WHERE name = 'Administrator' LIMIT 1),
+         (SELECT id FROM departments WHERE name = 'Administration' LIMIT 1),
+         (SELECT id FROM primary_roles WHERE name = 'Administrative lead' LIMIT 1),
+         'Clinic Administrator'
+       )
+       ON CONFLICT (employee_id) DO UPDATE
+       SET status = EXCLUDED.status,
+           updated_at = CURRENT_TIMESTAMP`,
+      [employeeId]
+    );
+
     await employeePool.query(
       `INSERT INTO audit_logs (clinic_id, actor_auth_user_id, action, entity_type, entity_id, metadata)
-       VALUES ($1, $2, 'bootstrap_admin_employee', 'employee', NULL, $3::jsonb)`,
+       VALUES ($1, $2, 'bootstrap_admin_employee', 'employee', $3, $4::jsonb)`,
       [
         clinic.id,
         user.id,
-        JSON.stringify({ authUserId: user.id, email: user.email, role: user.role }),
+        employeeId,
+        JSON.stringify({ authUserId: user.id, email: user.email, accountRole: user.role }),
       ]
     );
 

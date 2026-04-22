@@ -4,6 +4,7 @@ const { createAuthClient } = require('./authClient');
 const config = require('./config');
 const db = require('./db');
 const { createEmployeeApi } = require('./employeeApi');
+const { seedReferenceData } = require('./referenceData');
 
 const app = express();
 
@@ -49,6 +50,7 @@ app.use((error, req, res, next) => {
 
 async function startServer() {
   await db.initializeDatabase();
+  await seedReferenceData(db);
 
   app.listen(config.port, () => {
     console.log(`Employee service listening on port ${config.port}`);
