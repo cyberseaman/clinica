@@ -1,5 +1,8 @@
 import React, { useMemo, useState } from 'react';
 
+import { parseApiResponse } from './apiResponse';
+import { employeeApiBaseUrl } from './authConfig';
+
 const wizardSteps = [
   { id: 'basic_info', label: 'Basic Info' },
   { id: 'role', label: 'Role' },
@@ -369,6 +372,11 @@ const patientCarePermissionGroups = [
         name: 'Receive clinical handoff',
         description: 'Accept handoffs between intake, nursing, provider, and follow-up queues.',
       },
+      {
+        code: 'staff.supervise',
+        name: 'Supervise staff',
+        description: 'Oversee delegated clinical work, staffing flow, and patient-care team coverage.',
+      },
     ],
   },
   {
@@ -417,6 +425,11 @@ const patientCarePermissionGroups = [
         code: 'labs.results.review',
         name: 'Review lab results',
         description: 'Open, review, and acknowledge returned laboratory findings.',
+      },
+      {
+        code: 'labs.results.approve',
+        name: 'Approve lab results',
+        description: 'Approve and finalize returned laboratory findings when authorization allows.',
       },
       {
         code: 'prescription.create',
@@ -560,9 +573,11 @@ function getPermissionDefinition(code) {
   );
 }
 
-function EmployeeProviderPage({ clinic }) {
+function EmployeeProviderPage({ clinic, token }) {
   const [activeStepIndex, setActiveStepIndex] = useState(0);
   const [formValues, setFormValues] = useState(initialFormValues);
+  const [formStatus, setFormStatus] = useState('idle');
+  const [submissionError, setSubmissionError] = useState('');
   const [submissionMessage, setSubmissionMessage] = useState('');
   const [activeScopeCategory, setActiveScopeCategory] = useState(null);
 
@@ -685,6 +700,7 @@ function EmployeeProviderPage({ clinic }) {
     return (event) => {
       const { value } = event.target;
       setSubmissionMessage('');
+      setSubmissionError('');
       setFormValues((current) => ({
         ...current,
         [field]: value,
@@ -696,6 +712,7 @@ function EmployeeProviderPage({ clinic }) {
     return (event) => {
       const { value } = event.target;
       setSubmissionMessage('');
+      setSubmissionError('');
       setFormValues((current) => ({
         ...current,
         [group]: {
@@ -708,6 +725,7 @@ function EmployeeProviderPage({ clinic }) {
 
   function toggleNestedListValue(group, field, value) {
     setSubmissionMessage('');
+    setSubmissionError('');
     setFormValues((current) => {
       const values = current[group][field];
       const hasValue = values.includes(value);
@@ -725,6 +743,7 @@ function EmployeeProviderPage({ clinic }) {
   function handleSupportingDocumentsChange(event) {
     const files = Array.from(event.target.files || []);
     setSubmissionMessage('');
+    setSubmissionError('');
     setFormValues((current) => ({
       ...current,
       credentials: {
@@ -736,6 +755,7 @@ function EmployeeProviderPage({ clinic }) {
 
   function toggleListValue(field, value) {
     setSubmissionMessage('');
+    setSubmissionError('');
     setFormValues((current) => {
       const values = current[field];
       const hasValue = values.includes(value);
@@ -752,6 +772,7 @@ function EmployeeProviderPage({ clinic }) {
     const defaultDetails = categoryDefinition.conditions || [];
 
     setSubmissionMessage('');
+    setSubmissionError('');
     setFormValues((current) => {
       const isSelected = current.clinicalCategories.includes(categoryName);
 
@@ -785,6 +806,7 @@ function EmployeeProviderPage({ clinic }) {
 
   function toggleCategoryDetail(categoryName, detail) {
     setSubmissionMessage('');
+    setSubmissionError('');
     setFormValues((current) => {
       const existingDetails = current.clinicalCategoryDetails[categoryName] || [];
       const hasDetail = existingDetails.includes(detail);
@@ -804,22 +826,83 @@ function EmployeeProviderPage({ clinic }) {
   function goToStep(stepIndex) {
     setActiveStepIndex(stepIndex);
     setSubmissionMessage('');
+    setSubmissionError('');
   }
 
   function handleNext() {
     setActiveStepIndex((current) => Math.min(current + 1, wizardSteps.length - 1));
     setSubmissionMessage('');
+    setSubmissionError('');
   }
 
   function handleBack() {
     setActiveStepIndex((current) => Math.max(current - 1, 0));
     setSubmissionMessage('');
+    setSubmissionError('');
   }
 
-  function handleCreateProvider() {
-    setSubmissionMessage(
-      'Provider setup flow is scaffolded. Next we can wire each step to real validation and API submission.'
-    );
+  async function handleCreateProvider() {
+    setFormStatus('submitting');
+    setSubmissionMessage('');
+    setSubmissionError('');
+
+    const payload = {
+      basicInfo: {
+        accountRole: 'clinic_staff',
+        email: formValues.email,
+        employeeType: 'clinical',
+        firstName: formValues.firstName,
+        lastName: formValues.lastName,
+        phone: formValues.phone,
+      },
+      categoryPermissions: [],
+      clinicalCategories: {
+        categories: formValues.clinicalCategories,
+        detailsByCategory: formValues.clinicalCategoryDetails,
+      },
+      credentials: formValues.credentials,
+      employmentProfile: {
+        department: formValues.department,
+        employmentType: formValues.employmentType,
+        primaryRole: formValues.primaryRole,
+        providerType: formValues.providerType,
+        roleTitle: formValues.roleTitle,
+        startDate: formValues.startDate,
+        status: formValues.status,
+      },
+      experience: formValues.experience,
+      systemPermissions: formValues.systemPermissions,
+      availability: formValues.availability,
+    };
+
+    try {
+      const response = await fetch(`${employeeApiBaseUrl}/employees`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(payload),
+      });
+      const data = await parseApiResponse(response, 'Unable to create provider profile.');
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Unable to create provider profile.');
+      }
+
+      const uid = data.employee?.uid ? ` UID: ${data.employee.uid}.` : '';
+      const temporaryPassword = data.temporaryPassword
+        ? ` Temporary password: ${data.temporaryPassword}`
+        : '';
+
+      setSubmissionMessage(`Provider profile created successfully.${uid}${temporaryPassword}`);
+      setFormValues(initialFormValues);
+      setActiveStepIndex(0);
+    } catch (error) {
+      setSubmissionError(error.message);
+    } finally {
+      setFormStatus('idle');
+    }
   }
 
   function renderStepBody() {
@@ -1597,6 +1680,7 @@ function EmployeeProviderPage({ clinic }) {
 
             {renderStepBody()}
 
+            {submissionError ? <p className="login-error">{submissionError}</p> : null}
             {submissionMessage ? <p className="login-success">{submissionMessage}</p> : null}
 
             <div className="provider-step-actions">
@@ -1610,8 +1694,13 @@ function EmployeeProviderPage({ clinic }) {
               </button>
 
               {activeStepIndex === wizardSteps.length - 1 ? (
-                <button type="button" className="login-button" onClick={handleCreateProvider}>
-                  Create Provider Profile
+                <button
+                  type="button"
+                  className="login-button"
+                  onClick={handleCreateProvider}
+                  disabled={formStatus === 'submitting'}
+                >
+                  {formStatus === 'submitting' ? 'Creating Provider Profile...' : 'Create Provider Profile'}
                 </button>
               ) : (
                 <button type="button" className="login-button" onClick={handleNext}>

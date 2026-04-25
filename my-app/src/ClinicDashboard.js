@@ -1,8 +1,7 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 
 import { authApiBaseUrl, employeeApiBaseUrl, patientApiBaseUrl } from './authConfig';
-import ClinicEmployeePage from './ClinicEmployeePage';
-import ClinicStaffPage from './ClinicStaffPage';
+import EmployeesWorkspace from './EmployeesWorkspace';
 import PatientWorkspace from './PatientWorkspace';
 import { formatRoleLabel, hasPermission, permissions } from './rbac';
 
@@ -17,7 +16,38 @@ function ClinicDashboard({ clinic, staffUser, token, onLogout }) {
     hasPermission(staffUser, permissions.RECORDS_READ) ||
     hasPermission(staffUser, permissions.RECORDS_CREATE);
   const canManageEmployees = staffUser?.role === 'clinic_admin';
+  const canAccessEmployees = canManageEmployees || canManageUsers;
   const [activePage, setActivePage] = useState('overview');
+  const [activeEmployeeView, setActiveEmployeeView] = useState('clinical');
+
+  const employeeNavigationItems = useMemo(() => {
+    const items = [];
+
+    if (canManageEmployees) {
+      items.push({ id: 'clinical', label: '+ Clinical Staff' });
+      items.push({ id: 'non_clinical', label: '+ Non-Clinical Staff' });
+    }
+
+    if (canAccessEmployees) {
+      items.push({ id: 'manage', label: '👥 Manage Employees' });
+    }
+
+    if (canManageUsers) {
+      items.push({ id: 'access_accounts', label: '🔐 Create Access Account' });
+    }
+
+    return items;
+  }, [canAccessEmployees, canManageEmployees, canManageUsers]);
+
+  useEffect(() => {
+    if (!employeeNavigationItems.length) {
+      return;
+    }
+
+    if (!employeeNavigationItems.some((item) => item.id === activeEmployeeView)) {
+      setActiveEmployeeView(employeeNavigationItems[0].id);
+    }
+  }, [activeEmployeeView, employeeNavigationItems]);
 
   const navigationItems = useMemo(() => {
     const baseItems = [
@@ -28,16 +58,12 @@ function ClinicDashboard({ clinic, staffUser, token, onLogout }) {
       baseItems.push({ id: 'patients', label: 'Patients' });
     }
 
-    if (canManageUsers) {
-      baseItems.push({ id: 'staff', label: 'Staff Management' });
-    }
-
-    if (canManageEmployees) {
-      baseItems.push({ id: 'employee', label: 'Employee' });
+    if (canAccessEmployees) {
+      baseItems.push({ id: 'employees', label: 'Employees' });
     }
 
     return baseItems;
-  }, [canAccessPatients, canManageEmployees, canManageUsers]);
+  }, [canAccessEmployees, canAccessPatients]);
 
   function renderOverview() {
     return (
@@ -111,6 +137,20 @@ function ClinicDashboard({ clinic, staffUser, token, onLogout }) {
                 </button>
               ))}
             </div>
+            {activePage === 'employees' && employeeNavigationItems.length > 0 ? (
+              <div className="dashboard-subnav dashboard-subnav--horizontal">
+                {employeeNavigationItems.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className={`dashboard-subnav__item ${activeEmployeeView === item.id ? 'is-active' : ''}`}
+                    onClick={() => setActiveEmployeeView(item.id)}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
           </div>
         </div>
 
@@ -137,11 +177,13 @@ function ClinicDashboard({ clinic, staffUser, token, onLogout }) {
             {activePage === 'patients' && canAccessPatients ? (
               <PatientWorkspace token={token} staffUser={staffUser} clinic={clinic} />
             ) : null}
-            {activePage === 'staff' && canManageUsers ? (
-              <ClinicStaffPage token={token} staffUser={staffUser} clinic={clinic} />
-            ) : null}
-            {activePage === 'employee' && canManageEmployees ? (
-              <ClinicEmployeePage staffUser={staffUser} clinic={clinic} />
+            {activePage === 'employees' && canAccessEmployees ? (
+              <EmployeesWorkspace
+                activeView={activeEmployeeView}
+                clinic={clinic}
+                staffUser={staffUser}
+                token={token}
+              />
             ) : null}
           </div>
         </div>

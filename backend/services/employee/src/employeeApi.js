@@ -14,14 +14,20 @@ const {
 } = require('../../../shared/rbac');
 const {
   CLINICAL_CATEGORY_DEFINITIONS,
+  COMMUNICATION_CHANNELS,
   DAYS_OF_WEEK,
   DEPARTMENTS,
+  EMPLOYEE_TYPES,
   EMPLOYMENT_STATUSES,
   EMPLOYMENT_TYPES,
   LICENSE_STATUSES,
+  OPERATIONAL_SERVICE_LINES,
+  OPERATIONAL_SYSTEMS,
   POPULATION_FOCUSES,
   PRIMARY_ROLES,
   PROVIDER_TYPES,
+  SHIFT_TYPES,
+  STAFF_ROLE_DEFINITIONS,
   SYSTEM_PERMISSIONS,
   VISIT_TYPES,
   buildWizardDefaults,
@@ -239,8 +245,45 @@ function normalizeClinicalCategorySection(source = {}, detailSource = {}) {
   };
 }
 
+function normalizeOperationalProfile(body = {}, defaults = {}) {
+  const source = body.operationalProfile || body.staffOperations || {};
+
+  return {
+    communicationChannels: uniqueStrings(
+      source.communicationChannels || body.communicationChannels || defaults.communicationChannels
+    ),
+    notes: normalizeOptionalString(source.notes || body.notes || defaults.notes),
+    serviceLines: uniqueStrings(source.serviceLines || body.serviceLines || defaults.serviceLines),
+    shiftType: normalizeOptionalString(source.shiftType || body.shiftType || defaults.shiftType),
+    systems: uniqueStrings(source.systems || body.systems || defaults.systems),
+    supervisor: normalizeOptionalString(source.supervisor || body.supervisor || defaults.supervisor),
+    workLocation: normalizeOptionalString(source.workLocation || body.workLocation || defaults.workLocation),
+  };
+}
+
 function normalizeCreatePayload(body = {}) {
   const defaults = buildWizardDefaults();
+  const requestedEmployeeType = normalizeOptionalString(
+    body.employeeType ||
+    body.staffType ||
+    body.basicInfo?.employeeType ||
+    body.basicInfo?.staffType
+  );
+  const hasOperationalStaffData = Boolean(
+    body.operationalProfile ||
+    body.staffOperations ||
+    body.staffRole ||
+    body.serviceLines ||
+    body.systems ||
+    body.communicationChannels ||
+    body.shiftType ||
+    body.workLocation ||
+    body.supervisor
+  );
+
+  defaults.basicInfo.employeeType =
+    requestedEmployeeType || (hasOperationalStaffData ? 'non_clinical' : defaults.basicInfo.employeeType);
+
   const isLegacyAccountCreate =
     !!body &&
     !body.basicInfo &&
@@ -254,6 +297,7 @@ function normalizeCreatePayload(body = {}) {
     Object.prototype.hasOwnProperty.call(body, 'password');
 
   if (isLegacyAccountCreate) {
+    defaults.basicInfo.employeeType = 'non_clinical';
     defaults.clinicalCategories = {
       categories: [],
       detailsByCategory: {},
@@ -274,6 +318,38 @@ function normalizeCreatePayload(body = {}) {
       startTime: '',
       visitTypesAllowed: [],
     };
+    defaults.operationalProfile = {
+      communicationChannels: ['Email'],
+      notes: '',
+      serviceLines: ['Office coordination'],
+      shiftType: 'Day',
+      systems: ['Patient Messaging'],
+      supervisor: 'Operations Manager',
+      workLocation: 'Administration Office',
+    };
+  }
+
+  if (defaults.basicInfo.employeeType === 'non_clinical') {
+    defaults.clinicalCategories = {
+      categories: [],
+      detailsByCategory: {},
+    };
+    defaults.systemPermissions = [];
+    defaults.employmentProfile = {
+      ...defaults.employmentProfile,
+      department: 'Administration',
+      primaryRole: 'Administrative lead',
+      providerType: 'Other',
+      staffRole: 'Operations Coordinator',
+    };
+    defaults.availability = {
+      daysAvailable: [],
+      endTime: '',
+      maxPatientsPerDay: '',
+      notes: '',
+      startTime: '',
+      visitTypesAllowed: [],
+    };
   }
 
   const payload = clone(defaults);
@@ -282,6 +358,7 @@ function normalizeCreatePayload(body = {}) {
     ...payload.basicInfo,
     accountRole: normalizeOptionalString(body.accountRole || body.role || body.basicInfo?.accountRole) || payload.basicInfo.accountRole,
     email: normalizeOptionalString(body.email || body.basicInfo?.email || payload.basicInfo.email),
+    employeeType: normalizeOptionalString(body.employeeType || body.staffType || body.basicInfo?.employeeType || payload.basicInfo.employeeType),
     firstName: normalizeOptionalString(body.firstName || body.basicInfo?.firstName || payload.basicInfo.firstName),
     lastName: normalizeOptionalString(body.lastName || body.basicInfo?.lastName || payload.basicInfo.lastName),
     password: normalizeOptionalString(body.password || body.basicInfo?.password || payload.basicInfo.password),
@@ -300,6 +377,7 @@ function normalizeCreatePayload(body = {}) {
     primaryRole: normalizeOptionalString(body.primaryRole || body.employmentProfile?.primaryRole || payload.employmentProfile.primaryRole),
     providerType: normalizeOptionalString(body.providerType || body.employmentProfile?.providerType || payload.employmentProfile.providerType),
     roleTitle: normalizeOptionalString(body.roleTitle || body.employmentProfile?.roleTitle || payload.employmentProfile.roleTitle),
+    staffRole: normalizeOptionalString(body.staffRole || body.employmentProfile?.staffRole || payload.employmentProfile.staffRole),
     startDate: normalizeOptionalString(body.startDate || body.employmentProfile?.startDate || payload.employmentProfile.startDate),
     status: normalizeOptionalString(body.status || body.employmentProfile?.status || payload.employmentProfile.status),
   };
@@ -340,10 +418,12 @@ function normalizeCreatePayload(body = {}) {
   payload.systemPermissions = normalizeSystemPermissions([
     ...(payload.systemPermissions || []),
     ...(body.systemPermissions || []),
+    ...(body.accessPermissions || []),
     ...(body.permissions || []),
     ...normalizeLegacyResponsibilitiesAsPermissions(body.responsibilities),
   ]);
   payload.categoryPermissions = normalizeCategoryPermissions(body.categoryPermissions || payload.categoryPermissions);
+  payload.operationalProfile = normalizeOperationalProfile(body, payload.operationalProfile);
 
   payload.availability = {
     ...payload.availability,
@@ -383,6 +463,7 @@ function normalizePatchSections(body = {}) {
     'experience',
     'systemPermissions',
     'categoryPermissions',
+    'operationalProfile',
     'availability',
   ].filter((section) => Object.prototype.hasOwnProperty.call(body, section));
 
@@ -392,6 +473,21 @@ function normalizePatchSections(body = {}) {
 
   if (Object.prototype.hasOwnProperty.call(body, 'permissions')) {
     explicitSections.push('systemPermissions');
+  }
+
+  if (Object.prototype.hasOwnProperty.call(body, 'accessPermissions')) {
+    explicitSections.push('systemPermissions');
+  }
+
+  if (
+    Object.prototype.hasOwnProperty.call(body, 'serviceLines') ||
+    Object.prototype.hasOwnProperty.call(body, 'systems') ||
+    Object.prototype.hasOwnProperty.call(body, 'communicationChannels') ||
+    Object.prototype.hasOwnProperty.call(body, 'shiftType') ||
+    Object.prototype.hasOwnProperty.call(body, 'workLocation') ||
+    Object.prototype.hasOwnProperty.call(body, 'supervisor')
+  ) {
+    explicitSections.push('operationalProfile');
   }
 
   if (explicitSections.length === 0) {
@@ -407,6 +503,7 @@ function normalizePatchSections(body = {}) {
   if (explicitSections.includes('basicInfo')) {
     const source = pickPresentFields(body.basicInfo, [
       'accountRole',
+      'employeeType',
       'role',
       'email',
       'firstName',
@@ -418,6 +515,9 @@ function normalizePatchSections(body = {}) {
       ...(Object.prototype.hasOwnProperty.call(source, 'accountRole') ||
       Object.prototype.hasOwnProperty.call(source, 'role')
         ? { accountRole: normalizeOptionalString(source.accountRole || source.role) }
+        : {}),
+      ...(Object.prototype.hasOwnProperty.call(source, 'employeeType')
+        ? { employeeType: normalizeOptionalString(source.employeeType) }
         : {}),
       ...(Object.prototype.hasOwnProperty.call(source, 'email')
         ? { email: normalizeOptionalString(source.email) }
@@ -445,6 +545,7 @@ function normalizePatchSections(body = {}) {
       'primaryRole',
       'providerType',
       'roleTitle',
+      'staffRole',
       'startDate',
       'status',
     ]);
@@ -466,6 +567,9 @@ function normalizePatchSections(body = {}) {
         : {}),
       ...(Object.prototype.hasOwnProperty.call(source, 'roleTitle')
         ? { roleTitle: normalizeOptionalString(source.roleTitle) }
+        : {}),
+      ...(Object.prototype.hasOwnProperty.call(source, 'staffRole')
+        ? { staffRole: normalizeOptionalString(source.staffRole) }
         : {}),
       ...(Object.prototype.hasOwnProperty.call(source, 'startDate')
         ? { startDate: normalizeOptionalString(source.startDate) }
@@ -569,6 +673,7 @@ function normalizePatchSections(body = {}) {
   if (explicitSections.includes('systemPermissions')) {
     payload.systemPermissions = normalizeSystemPermissions([
       ...(body.systemPermissions || []),
+      ...(body.accessPermissions || []),
       ...(body.permissions || []),
       ...normalizeLegacyResponsibilitiesAsPermissions(body.responsibilities),
     ]);
@@ -576,6 +681,10 @@ function normalizePatchSections(body = {}) {
 
   if (explicitSections.includes('categoryPermissions')) {
     payload.categoryPermissions = normalizeCategoryPermissions(body.categoryPermissions);
+  }
+
+  if (explicitSections.includes('operationalProfile')) {
+    payload.operationalProfile = normalizeOperationalProfile(body);
   }
 
   if (explicitSections.includes('availability')) {
@@ -659,19 +768,29 @@ async function loadLookupMaps(queryable) {
     providerTypesResult,
     departmentsResult,
     primaryRolesResult,
+    staffRolesResult,
     clinicalCategoriesResult,
     permissionsResult,
     visitTypesResult,
     populationFocusesResult,
+    shiftTypesResult,
+    operationalServiceLinesResult,
+    operationalSystemsResult,
+    communicationChannelsResult,
   ] = await Promise.all([
     queryable.query('SELECT id, name FROM employment_types ORDER BY name ASC'),
     queryable.query('SELECT id, name FROM provider_types ORDER BY name ASC'),
     queryable.query('SELECT id, name FROM departments ORDER BY name ASC'),
     queryable.query('SELECT id, name FROM primary_roles ORDER BY name ASC'),
+    queryable.query('SELECT id, name, department_id FROM staff_roles ORDER BY name ASC'),
     queryable.query('SELECT id, name, description FROM clinical_categories ORDER BY name ASC'),
     queryable.query('SELECT id, code, name, is_category_scoped FROM permissions ORDER BY code ASC'),
     queryable.query('SELECT id, name FROM visit_types ORDER BY name ASC'),
     queryable.query('SELECT id, name FROM population_focuses ORDER BY name ASC'),
+    queryable.query('SELECT id, name FROM shift_types ORDER BY name ASC'),
+    queryable.query('SELECT id, name FROM operational_service_lines ORDER BY name ASC'),
+    queryable.query('SELECT id, name FROM operational_systems ORDER BY name ASC'),
+    queryable.query('SELECT id, name FROM communication_channels ORDER BY name ASC'),
   ]);
 
   const mapByName = (rows) =>
@@ -681,12 +800,17 @@ async function loadLookupMaps(queryable) {
 
   return {
     clinicalCategories: mapByName(clinicalCategoriesResult.rows),
+    communicationChannels: mapByName(communicationChannelsResult.rows),
     departments: mapByName(departmentsResult.rows),
     employmentTypes: mapByName(employmentTypesResult.rows),
+    operationalServiceLines: mapByName(operationalServiceLinesResult.rows),
+    operationalSystems: mapByName(operationalSystemsResult.rows),
     permissionsByCode: mapByCode(permissionsResult.rows),
     populationFocuses: mapByName(populationFocusesResult.rows),
     primaryRoles: mapByName(primaryRolesResult.rows),
     providerTypes: mapByName(providerTypesResult.rows),
+    shiftTypes: mapByName(shiftTypesResult.rows),
+    staffRoles: mapByName(staffRolesResult.rows),
     visitTypes: mapByName(visitTypesResult.rows),
   };
 }
@@ -697,6 +821,10 @@ function validateWizardPayload(payload, lookupMaps) {
   const accountRole = payload.basicInfo.accountRole || 'clinic_staff';
   if (!ROLE_NAMES.includes(accountRole)) {
     errors.push(`accountRole must be one of: ${ROLE_NAMES.join(', ')}.`);
+  }
+
+  if (!EMPLOYEE_TYPES.includes(payload.basicInfo.employeeType)) {
+    errors.push(`employeeType must be one of: ${EMPLOYEE_TYPES.join(', ')}.`);
   }
 
   if (!payload.basicInfo.firstName) {
@@ -725,6 +853,14 @@ function validateWizardPayload(payload, lookupMaps) {
 
   if (!lookupMaps.primaryRoles.has(payload.employmentProfile.primaryRole)) {
     errors.push(`primaryRole must be one of: ${PRIMARY_ROLES.join(', ')}.`);
+  }
+
+  if (
+    payload.basicInfo.employeeType === 'non_clinical' &&
+    payload.employmentProfile.staffRole &&
+    !lookupMaps.staffRoles.has(payload.employmentProfile.staffRole)
+  ) {
+    errors.push(`Unknown staffRole: ${payload.employmentProfile.staffRole}.`);
   }
 
   if (!lookupMaps.employmentTypes.has(payload.employmentProfile.employmentType)) {
@@ -830,6 +966,32 @@ function validateWizardPayload(payload, lookupMaps) {
     }
   }
 
+  if (
+    payload.basicInfo.employeeType === 'non_clinical' &&
+    payload.operationalProfile.shiftType &&
+    !lookupMaps.shiftTypes.has(payload.operationalProfile.shiftType)
+  ) {
+    errors.push(`Unknown shiftType: ${payload.operationalProfile.shiftType}.`);
+  }
+
+  for (const serviceLine of payload.operationalProfile.serviceLines) {
+    if (!lookupMaps.operationalServiceLines.has(serviceLine)) {
+      errors.push(`Unknown serviceLine: ${serviceLine}.`);
+    }
+  }
+
+  for (const system of payload.operationalProfile.systems) {
+    if (!lookupMaps.operationalSystems.has(system)) {
+      errors.push(`Unknown operational system: ${system}.`);
+    }
+  }
+
+  for (const channel of payload.operationalProfile.communicationChannels) {
+    if (!lookupMaps.communicationChannels.has(channel)) {
+      errors.push(`Unknown communication channel: ${channel}.`);
+    }
+  }
+
   const grantedPermissionCodes = new Set();
   for (const permission of payload.systemPermissions) {
     if (permission.allowed !== false) {
@@ -857,7 +1019,6 @@ function validateWizardPayload(payload, lookupMaps) {
 
   return {
     accountRole,
-    normalizedResponsibilityCodes,
     errors,
   };
 }
@@ -909,7 +1070,8 @@ async function upsertBasicInfoSection(queryable, options) {
            first_name = $4,
            last_name = $5,
            phone = $6,
-           updated_by_auth_user_id = $7,
+           employee_type = $7,
+           updated_by_auth_user_id = $8,
            updated_at = CURRENT_TIMESTAMP
        WHERE id = $1`,
       [
@@ -919,6 +1081,7 @@ async function upsertBasicInfoSection(queryable, options) {
         normalizeStringOrNull(section.firstName),
         normalizeStringOrNull(section.lastName),
         normalizeStringOrNull(section.phone),
+        section.employeeType || 'clinical',
         actorUserId,
       ]
     );
@@ -932,10 +1095,11 @@ async function upsertBasicInfoSection(queryable, options) {
          first_name,
          last_name,
          phone,
+         employee_type,
          created_by_auth_user_id,
          updated_by_auth_user_id
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
        RETURNING id`,
       [
         authUserId,
@@ -945,6 +1109,7 @@ async function upsertBasicInfoSection(queryable, options) {
         normalizeStringOrNull(section.firstName),
         normalizeStringOrNull(section.lastName),
         normalizeStringOrNull(section.phone),
+        section.employeeType || 'clinical',
         actorUserId,
       ]
     );
@@ -956,6 +1121,10 @@ async function upsertBasicInfoSection(queryable, options) {
 }
 
 async function upsertAccessProfileSection(queryable, employeeId, accountRole) {
+  if (!accountRole) {
+    return;
+  }
+
   await queryable.query(
     `INSERT INTO employee_access_profiles (employee_id, account_role)
      VALUES ($1, $2)
@@ -976,9 +1145,10 @@ async function upsertEmploymentProfileSection(queryable, employeeId, section, lo
        provider_type_id,
        department_id,
        primary_role_id,
+       staff_role_id,
        role_title
      )
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
      ON CONFLICT (employee_id) DO UPDATE
      SET start_date = EXCLUDED.start_date,
          status = EXCLUDED.status,
@@ -986,6 +1156,7 @@ async function upsertEmploymentProfileSection(queryable, employeeId, section, lo
          provider_type_id = EXCLUDED.provider_type_id,
          department_id = EXCLUDED.department_id,
          primary_role_id = EXCLUDED.primary_role_id,
+         staff_role_id = EXCLUDED.staff_role_id,
          role_title = EXCLUDED.role_title,
          updated_at = CURRENT_TIMESTAMP`,
     [
@@ -996,6 +1167,7 @@ async function upsertEmploymentProfileSection(queryable, employeeId, section, lo
       lookupMaps.providerTypes.get(section.providerType)?.id || null,
       lookupMaps.departments.get(section.department)?.id || null,
       lookupMaps.primaryRoles.get(section.primaryRole)?.id || null,
+      lookupMaps.staffRoles.get(section.staffRole)?.id || null,
       normalizeStringOrNull(section.roleTitle),
     ]
   );
@@ -1227,6 +1399,68 @@ async function replaceAvailabilitySection(queryable, employeeId, section, lookup
   }
 }
 
+async function replaceOperationalProfileSection(queryable, employeeId, section, lookupMaps) {
+  await queryable.query(
+    `INSERT INTO employee_operational_profiles (
+       employee_id,
+       shift_type_id,
+       work_location_name,
+       supervisor_name,
+       notes
+     )
+     VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT (employee_id) DO UPDATE
+     SET shift_type_id = EXCLUDED.shift_type_id,
+         work_location_name = EXCLUDED.work_location_name,
+         supervisor_name = EXCLUDED.supervisor_name,
+         notes = EXCLUDED.notes,
+         updated_at = CURRENT_TIMESTAMP`,
+    [
+      employeeId,
+      lookupMaps.shiftTypes.get(section.shiftType)?.id || null,
+      normalizeStringOrNull(section.workLocation),
+      normalizeStringOrNull(section.supervisor),
+      normalizeStringOrNull(section.notes),
+    ]
+  );
+
+  await queryable.query('DELETE FROM employee_operational_service_lines WHERE employee_id = $1', [employeeId]);
+  for (const serviceLine of uniqueStrings(section.serviceLines)) {
+    const serviceLineId = lookupMaps.operationalServiceLines.get(serviceLine)?.id;
+    if (serviceLineId) {
+      await queryable.query(
+        `INSERT INTO employee_operational_service_lines (employee_id, service_line_id)
+         VALUES ($1, $2)`,
+        [employeeId, serviceLineId]
+      );
+    }
+  }
+
+  await queryable.query('DELETE FROM employee_operational_systems WHERE employee_id = $1', [employeeId]);
+  for (const system of uniqueStrings(section.systems)) {
+    const systemId = lookupMaps.operationalSystems.get(system)?.id;
+    if (systemId) {
+      await queryable.query(
+        `INSERT INTO employee_operational_systems (employee_id, system_id)
+         VALUES ($1, $2)`,
+        [employeeId, systemId]
+      );
+    }
+  }
+
+  await queryable.query('DELETE FROM employee_communication_channels WHERE employee_id = $1', [employeeId]);
+  for (const channel of uniqueStrings(section.communicationChannels)) {
+    const channelId = lookupMaps.communicationChannels.get(channel)?.id;
+    if (channelId) {
+      await queryable.query(
+        `INSERT INTO employee_communication_channels (employee_id, communication_channel_id)
+         VALUES ($1, $2)`,
+        [employeeId, channelId]
+      );
+    }
+  }
+}
+
 async function writeAuditLog(queryable, clinicId, actorUserId, action, entityId, metadata) {
   await queryable.query(
     `INSERT INTO audit_logs (clinic_id, actor_auth_user_id, action, entity_type, entity_id, metadata)
@@ -1239,6 +1473,7 @@ async function loadEmployeeSummary(queryable, clinicId, employeeId = null) {
   const result = await queryable.query(
     `SELECT
        e.id,
+       e.uid,
        e.auth_user_id,
        e.clinic_id,
        e.clinic_location_id,
@@ -1247,6 +1482,7 @@ async function loadEmployeeSummary(queryable, clinicId, employeeId = null) {
        e.first_name,
        e.last_name,
        e.phone,
+       e.employee_type,
        e.created_at,
        e.updated_at,
        ap.account_role,
@@ -1255,6 +1491,7 @@ async function loadEmployeeSummary(queryable, clinicId, employeeId = null) {
        pt.name AS provider_type,
        d.name AS department,
        pr.name AS primary_role,
+       sr.name AS staff_role,
        ep.role_title,
        ep.start_date,
        COALESCE(perm.permission_count, 0) AS permission_count,
@@ -1267,6 +1504,7 @@ async function loadEmployeeSummary(queryable, clinicId, employeeId = null) {
      LEFT JOIN provider_types pt ON pt.id = ep.provider_type_id
      LEFT JOIN departments d ON d.id = ep.department_id
      LEFT JOIN primary_roles pr ON pr.id = ep.primary_role_id
+     LEFT JOIN staff_roles sr ON sr.id = ep.staff_role_id
      LEFT JOIN (
        SELECT employee_id, COUNT(*)::INT AS permission_count
        FROM employee_permissions
@@ -1284,8 +1522,8 @@ async function loadEmployeeSummary(queryable, clinicId, employeeId = null) {
   );
 
   return result.rows.map((row) => ({
-    accountRole: row.account_role || 'clinic_staff',
-    authUserId: Number(row.auth_user_id),
+    accountRole: row.account_role || '',
+    authUserId: row.auth_user_id ? Number(row.auth_user_id) : null,
     categoryCount: Number(row.category_count || 0),
     clinicId: Number(row.clinic_id),
     clinicLocationId: row.clinic_location_id ? Number(row.clinic_location_id) : null,
@@ -1293,9 +1531,11 @@ async function loadEmployeeSummary(queryable, clinicId, employeeId = null) {
     createdAt: row.created_at,
     department: row.department || '',
     email: row.email,
+    employeeType: row.employee_type || 'clinical',
     employmentStatus: row.status || 'pending',
     employmentType: row.employment_type || '',
     firstName: row.first_name || '',
+    hasAccessAccount: Boolean(row.auth_user_id),
     id: Number(row.id),
     lastName: row.last_name || '',
     phone: row.phone || '',
@@ -1303,10 +1543,12 @@ async function loadEmployeeSummary(queryable, clinicId, employeeId = null) {
     primaryRole: row.primary_role || '',
     providerType: row.provider_type || '',
     responsibilityCount: Number(row.permission_count || 0),
-    role: row.account_role || 'clinic_staff',
+    role: row.account_role || '',
     roleTitle: row.role_title || '',
     startDate: row.start_date,
+    staffRole: row.staff_role || '',
     updatedAt: row.updated_at,
+    uid: row.uid,
   }));
 }
 
@@ -1330,6 +1572,10 @@ async function loadEmployeeWizardData(queryable, clinicId, employeeId) {
     availabilityResult,
     availabilityDaysResult,
     visitTypesResult,
+    operationalProfileResult,
+    operationalServiceLinesResult,
+    operationalSystemsResult,
+    communicationChannelsResult,
   ] = await Promise.all([
     queryable.query(
       `SELECT c.name, c.description, d.detail_name
@@ -1422,6 +1668,41 @@ async function loadEmployeeWizardData(queryable, clinicId, employeeId) {
        ORDER BY vt.name ASC`,
       [employeeId]
     ),
+    queryable.query(
+      `SELECT
+         st.name AS shift_type,
+         eop.work_location_name,
+         eop.supervisor_name,
+         eop.notes
+       FROM employee_operational_profiles eop
+       LEFT JOIN shift_types st ON st.id = eop.shift_type_id
+       WHERE eop.employee_id = $1`,
+      [employeeId]
+    ),
+    queryable.query(
+      `SELECT osl.name
+       FROM employee_operational_service_lines eosl
+       JOIN operational_service_lines osl ON osl.id = eosl.service_line_id
+       WHERE eosl.employee_id = $1
+       ORDER BY osl.name ASC`,
+      [employeeId]
+    ),
+    queryable.query(
+      `SELECT os.name
+       FROM employee_operational_systems eos
+       JOIN operational_systems os ON os.id = eos.system_id
+       WHERE eos.employee_id = $1
+       ORDER BY os.name ASC`,
+      [employeeId]
+    ),
+    queryable.query(
+      `SELECT cc.name
+       FROM employee_communication_channels ecc
+       JOIN communication_channels cc ON cc.id = ecc.communication_channel_id
+       WHERE ecc.employee_id = $1
+       ORDER BY cc.name ASC`,
+      [employeeId]
+    ),
   ]);
 
   const categories = [];
@@ -1447,6 +1728,7 @@ async function loadEmployeeWizardData(queryable, clinicId, employeeId) {
   const regulatory = regulatoryResult.rows[0] || {};
   const experience = experienceResult.rows[0] || {};
   const availability = availabilityResult.rows[0] || {};
+  const operationalProfile = operationalProfileResult.rows[0] || {};
 
   return {
     employee: summary,
@@ -1454,6 +1736,7 @@ async function loadEmployeeWizardData(queryable, clinicId, employeeId) {
       basicInfo: {
         accountRole: summary.accountRole,
         email: summary.email,
+        employeeType: summary.employeeType,
         firstName: summary.firstName,
         lastName: summary.lastName,
         password: '',
@@ -1495,6 +1778,7 @@ async function loadEmployeeWizardData(queryable, clinicId, employeeId) {
         roleTitle: summary.roleTitle || '',
         startDate: summary.startDate || '',
         status: summary.employmentStatus || 'pending',
+        staffRole: summary.staffRole || '',
       },
       experience: {
         internalNotes: experience.internal_notes || '',
@@ -1522,6 +1806,15 @@ async function loadEmployeeWizardData(queryable, clinicId, employeeId) {
         notes: availability.notes || '',
         startTime: availability.start_time ? String(availability.start_time).slice(0, 5) : '',
         visitTypesAllowed: visitTypesResult.rows.map((row) => row.name),
+      },
+      operationalProfile: {
+        communicationChannels: communicationChannelsResult.rows.map((row) => row.name),
+        notes: operationalProfile.notes || '',
+        serviceLines: operationalServiceLinesResult.rows.map((row) => row.name),
+        shiftType: operationalProfile.shift_type || '',
+        systems: operationalSystemsResult.rows.map((row) => row.name),
+        supervisor: operationalProfile.supervisor_name || '',
+        workLocation: operationalProfile.work_location_name || '',
       },
     },
   };
@@ -1633,15 +1926,21 @@ function createEmployeeApi(options = {}) {
     return res.status(200).json({
       accountRoles: ROLE_NAMES,
       clinicalCategories: CLINICAL_CATEGORY_DEFINITIONS,
+      communicationChannels: COMMUNICATION_CHANNELS,
       daysOfWeek: DAYS_OF_WEEK,
       departments: DEPARTMENTS,
+      employeeTypes: EMPLOYEE_TYPES,
       employmentStatuses: EMPLOYMENT_STATUSES,
       employmentTypes: EMPLOYMENT_TYPES,
       licenseStatuses: LICENSE_STATUSES,
+      operationalServiceLines: OPERATIONAL_SERVICE_LINES,
+      operationalSystems: OPERATIONAL_SYSTEMS,
       permissions: SYSTEM_PERMISSIONS,
       populationFocuses: POPULATION_FOCUSES,
       primaryRoles: PRIMARY_ROLES,
       providerTypes: PROVIDER_TYPES,
+      shiftTypes: SHIFT_TYPES,
+      staffRoles: STAFF_ROLE_DEFINITIONS,
       visitTypes: VISIT_TYPES,
     });
   });
@@ -1694,8 +1993,6 @@ function createEmployeeApi(options = {}) {
       return sendJsonError(res, 403, authorizationError);
     }
 
-    let provisionedUser = null;
-
     try {
       const payload = normalizeCreatePayload(req.body);
       const lookupMaps = await loadLookupMaps(db);
@@ -1705,36 +2002,19 @@ function createEmployeeApi(options = {}) {
         return sendJsonError(res, 400, validation.errors.join(' '));
       }
 
-      const requiredAssignScope = ASSIGN_SCOPE_BY_ROLE[validation.accountRole];
-      if (!req.auth.scopes.includes(requiredAssignScope)) {
-        return sendJsonError(res, 403, `You do not have permission to assign the ${validation.accountRole} role.`);
-      }
-
-      const authResponse = await authClient.provisionEmployeeIdentity(req.accessToken, {
-        email: normalizeEmail(payload.basicInfo.email),
-        firstName: payload.basicInfo.firstName,
-        lastName: payload.basicInfo.lastName,
-        password: payload.basicInfo.password || undefined,
-        role: validation.accountRole,
-      });
-
-      provisionedUser = authResponse.user;
-
       const employeeId = await db.withTransaction(async (client) => {
         const employeeIdentitySection = {
           ...payload.basicInfo,
           clinicLocationName: payload.employmentProfile.clinicLocationName,
-          email: provisionedUser.email,
         };
 
         const createdEmployeeId = await upsertBasicInfoSection(client, {
           actorUserId: req.auth.userId,
-          authUserId: provisionedUser.id,
+          authUserId: null,
           clinicId: req.auth.clinicId,
           section: employeeIdentitySection,
         });
 
-        await upsertAccessProfileSection(client, createdEmployeeId, validation.accountRole);
         await upsertEmploymentProfileSection(client, createdEmployeeId, payload.employmentProfile, lookupMaps);
         await replaceClinicalCategoriesSection(client, createdEmployeeId, payload.clinicalCategories, lookupMaps);
         await replaceSystemPermissionsSection(client, createdEmployeeId, payload.systemPermissions, lookupMaps);
@@ -1742,9 +2022,10 @@ function createEmployeeApi(options = {}) {
         await replaceCredentialsSection(client, createdEmployeeId, payload.credentials);
         await replaceExperienceSection(client, createdEmployeeId, payload.experience, lookupMaps);
         await replaceAvailabilitySection(client, createdEmployeeId, payload.availability, lookupMaps);
-        await writeAuditLog(client, req.auth.clinicId, req.auth.userId, 'create_employee_wizard_profile', createdEmployeeId, {
-          accountRole: validation.accountRole,
-          email: provisionedUser.email,
+        await replaceOperationalProfileSection(client, createdEmployeeId, payload.operationalProfile, lookupMaps);
+        await writeAuditLog(client, req.auth.clinicId, req.auth.userId, 'create_employee_record', createdEmployeeId, {
+          email: normalizeEmail(payload.basicInfo.email),
+          employeeType: payload.basicInfo.employeeType,
           providerType: payload.employmentProfile.providerType,
         });
 
@@ -1753,10 +2034,102 @@ function createEmployeeApi(options = {}) {
 
       const employee = await loadEmployeeWizardData(db, req.auth.clinicId, employeeId);
 
-      return res.status(201).json({
-        ...employee,
-        temporaryPassword: authResponse.temporaryPassword || null,
+      return res.status(201).json(employee);
+    } catch (error) {
+      if (error.status) {
+        return sendJsonError(res, error.status, error.payload?.error || error.message);
+      }
+
+      if (error.code === '23505') {
+        return sendJsonError(res, 409, 'An employee with that email already exists.');
+      }
+
+      return next(error);
+    }
+  });
+
+  router.post('/employees/:employeeId/access-account', requireScopes(PERMISSIONS.EMPLOYEES_WRITE), async (req, res, next) => {
+    const employeeId = parsePositiveInteger(req.params.employeeId);
+
+    if (!employeeId) {
+      return sendJsonError(res, 400, 'employeeId must be a positive integer.');
+    }
+
+    const authorizationError = assertClinicAdminAuthority(req, req.auth.clinicId);
+
+    if (authorizationError) {
+      return sendJsonError(res, 403, authorizationError);
+    }
+
+    const requestedRole = normalizeOptionalString(req.body.role) || 'clinic_staff';
+    const password = normalizeOptionalString(req.body.password);
+
+    if (!ROLE_NAMES.includes(requestedRole)) {
+      return sendJsonError(res, 400, `role must be one of: ${ROLE_NAMES.join(', ')}.`);
+    }
+
+    if (!password) {
+      return sendJsonError(res, 400, 'password is required.');
+    }
+
+    const requiredAssignScope = ASSIGN_SCOPE_BY_ROLE[requestedRole];
+    if (!req.auth.scopes.includes(requiredAssignScope)) {
+      return sendJsonError(res, 403, `You do not have permission to assign the ${requestedRole} role.`);
+    }
+
+    let provisionedUser = null;
+
+    try {
+      const existingEmployee = (await loadEmployeeSummary(db, req.auth.clinicId, employeeId))[0];
+
+      if (!existingEmployee) {
+        return sendJsonError(res, 404, 'Employee not found.');
+      }
+
+      if (existingEmployee.authUserId) {
+        return sendJsonError(res, 409, 'This employee already has an access account.');
+      }
+
+      const accessEmail = normalizeEmail(req.body.email || existingEmployee.email);
+
+      provisionedUser = (
+        await authClient.provisionEmployeeIdentity(req.accessToken, {
+          email: accessEmail,
+          firstName: existingEmployee.firstName,
+          lastName: existingEmployee.lastName,
+          password,
+          role: requestedRole,
+        })
+      ).user;
+
+      await db.withTransaction(async (client) => {
+        await client.query(
+          `UPDATE employees
+           SET auth_user_id = $2,
+               email = $3,
+               updated_by_auth_user_id = $4,
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = $1
+             AND clinic_id = $5`,
+          [
+            employeeId,
+            provisionedUser.id,
+            provisionedUser.email,
+            req.auth.userId,
+            req.auth.clinicId,
+          ]
+        );
+
+        await upsertAccessProfileSection(client, employeeId, requestedRole);
+        await writeAuditLog(client, req.auth.clinicId, req.auth.userId, 'create_employee_access_account', employeeId, {
+          authUserId: provisionedUser.id,
+          email: provisionedUser.email,
+          role: requestedRole,
+        });
       });
+
+      const employee = (await loadEmployeeSummary(db, req.auth.clinicId, employeeId))[0];
+      return res.status(201).json({ employee });
     } catch (error) {
       if (provisionedUser?.id) {
         try {
@@ -1771,7 +2144,7 @@ function createEmployeeApi(options = {}) {
       }
 
       if (error.code === '23505') {
-        return sendJsonError(res, 409, 'An employee with that email already exists.');
+        return sendJsonError(res, 409, 'An employee or user with that email already exists.');
       }
 
       return next(error);
@@ -1810,30 +2183,30 @@ function createEmployeeApi(options = {}) {
         return sendJsonError(res, 400, validation.errors.join(' '));
       }
 
-      const requiredAssignScope = ASSIGN_SCOPE_BY_ROLE[validation.accountRole];
-      if (!req.auth.scopes.includes(requiredAssignScope)) {
-        return sendJsonError(res, 403, `You do not have permission to assign the ${validation.accountRole} role.`);
-      }
-
-      previousIdentity = {
+      previousIdentity = existing.employee.authUserId ? {
         email: existing.wizardData.basicInfo.email,
         firstName: existing.wizardData.basicInfo.firstName,
         lastName: existing.wizardData.basicInfo.lastName,
-        role: existing.wizardData.basicInfo.accountRole,
-      };
+        role: existing.wizardData.basicInfo.accountRole || 'clinic_staff',
+      } : null;
 
-      const nextIdentity = {
+      const nextIdentity = existing.employee.authUserId ? {
         email: mergedPayload.basicInfo.email,
         firstName: mergedPayload.basicInfo.firstName,
         lastName: mergedPayload.basicInfo.lastName,
-        role: mergedPayload.basicInfo.accountRole,
-      };
+        role: mergedPayload.basicInfo.accountRole || existing.wizardData.basicInfo.accountRole || 'clinic_staff',
+      } : null;
 
       if (
-        nextIdentity.email !== previousIdentity.email ||
-        nextIdentity.firstName !== previousIdentity.firstName ||
-        nextIdentity.lastName !== previousIdentity.lastName ||
-        nextIdentity.role !== previousIdentity.role
+        existing.employee.authUserId &&
+        nextIdentity &&
+        previousIdentity &&
+        (
+          nextIdentity.email !== previousIdentity.email ||
+          nextIdentity.firstName !== previousIdentity.firstName ||
+          nextIdentity.lastName !== previousIdentity.lastName ||
+          nextIdentity.role !== previousIdentity.role
+        )
       ) {
         await authClient.updateEmployeeIdentity(req.accessToken, existing.employee.authUserId, nextIdentity);
         identityWasUpdated = true;
@@ -1852,7 +2225,6 @@ function createEmployeeApi(options = {}) {
             employeeId,
             section: employeeIdentitySection,
           });
-          await upsertAccessProfileSection(client, employeeId, validation.accountRole);
         }
 
         if (sections.includes('employmentProfile')) {
@@ -1893,6 +2265,10 @@ function createEmployeeApi(options = {}) {
 
         if (sections.includes('availability')) {
           await replaceAvailabilitySection(client, employeeId, mergedPayload.availability, lookupMaps);
+        }
+
+        if (sections.includes('operationalProfile')) {
+          await replaceOperationalProfileSection(client, employeeId, mergedPayload.operationalProfile, lookupMaps);
         }
 
         await writeAuditLog(client, req.auth.clinicId, req.auth.userId, 'update_employee_wizard_profile', employeeId, {

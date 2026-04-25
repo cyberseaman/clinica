@@ -1,10 +1,15 @@
 const {
   CLINICAL_CATEGORY_DEFINITIONS,
+  COMMUNICATION_CHANNELS,
   DEPARTMENTS,
   EMPLOYMENT_TYPES,
+  OPERATIONAL_SERVICE_LINES,
+  OPERATIONAL_SYSTEMS,
   POPULATION_FOCUSES,
   PRIMARY_ROLES,
   PROVIDER_TYPES,
+  SHIFT_TYPES,
+  STAFF_ROLE_DEFINITIONS,
   SYSTEM_PERMISSIONS,
   VISIT_TYPES,
 } = require('./catalog');
@@ -51,6 +56,18 @@ async function upsertPermissions(db) {
   }
 }
 
+async function upsertStaffRoles(db) {
+  for (const role of STAFF_ROLE_DEFINITIONS) {
+    await db.query(
+      `INSERT INTO staff_roles (department_id, name)
+       VALUES ((SELECT id FROM departments WHERE name = $1 LIMIT 1), $2)
+       ON CONFLICT (name) DO UPDATE
+       SET department_id = EXCLUDED.department_id`,
+      [role.department, role.name]
+    );
+  }
+}
+
 async function seedReferenceData(db) {
   await upsertNamedRows(db, 'employment_types', EMPLOYMENT_TYPES);
   await upsertNamedRows(db, 'provider_types', PROVIDER_TYPES);
@@ -58,6 +75,11 @@ async function seedReferenceData(db) {
   await upsertNamedRows(db, 'primary_roles', PRIMARY_ROLES);
   await upsertNamedRows(db, 'population_focuses', POPULATION_FOCUSES);
   await upsertNamedRows(db, 'visit_types', VISIT_TYPES);
+  await upsertNamedRows(db, 'shift_types', SHIFT_TYPES);
+  await upsertNamedRows(db, 'operational_service_lines', OPERATIONAL_SERVICE_LINES);
+  await upsertNamedRows(db, 'operational_systems', OPERATIONAL_SYSTEMS);
+  await upsertNamedRows(db, 'communication_channels', COMMUNICATION_CHANNELS);
+  await upsertStaffRoles(db);
   await upsertClinicalCategories(db);
   await upsertPermissions(db);
 }

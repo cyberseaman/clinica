@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 
+import { parseApiResponse } from './apiResponse';
 import { authApiBaseUrl, employeeApiBaseUrl } from './authConfig';
 import { formatRoleLabel, getAssignableRoles, hasPermission, permissions, roleLabels } from './rbac';
 
@@ -37,7 +38,7 @@ function ClinicStaffPage({ token, staffUser, clinic }) {
                 Authorization: `Bearer ${token}`,
               },
             }).then(async (response) => {
-              const data = await response.json();
+              const data = await parseApiResponse(response, 'Unable to load clinic employees.');
 
               if (!response.ok) {
                 throw new Error(data.error || 'Unable to load clinic employees.');
@@ -119,7 +120,7 @@ function ClinicStaffPage({ token, staffUser, clinic }) {
         },
         body: JSON.stringify(formValues),
       });
-      const data = await response.json();
+      const data = await parseApiResponse(response, 'Unable to create clinic employee.');
 
       if (!response.ok) {
         throw new Error(data.error || 'Unable to create clinic employee.');

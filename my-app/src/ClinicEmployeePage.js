@@ -2,7 +2,7 @@ import React from 'react';
 
 import EmployeeProviderPage from './EmployeeProviderPage';
 
-function ClinicEmployeePage({ clinic, staffUser }) {
+function ClinicEmployeePage({ clinic, staffUser, token }) {
   if (staffUser?.role !== 'clinic_admin') {
     return (
       <section className="dashboard-content">
@@ -18,7 +18,7 @@ function ClinicEmployeePage({ clinic, staffUser }) {
     );
   }
 
-  return <EmployeeProviderPage clinic={clinic} />;
+  return <EmployeeProviderPage clinic={clinic} token={token} />;
 }
 
 export default ClinicEmployeePage;
